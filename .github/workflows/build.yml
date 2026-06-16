@@ -8,24 +8,16 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - uses: actions/setup-java@v4
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-      - name: Build Everything
+        with: { java-version: '21', distribution: 'temurin' }
+      - name: Setup and Build
         run: |
           mkdir -p www
           cp index.html www/
-          npm install
+          cp *.mp3 www/ 2>/dev/null || true
+          npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor-community/speech-recognition
           npx cap init Tilawa com.tilawa.sourate --web-dir www
           npx cap add android
-          npm install @capacitor-community/speech-recognition
-          # Correction : on force la version Java 21 partout
-          find android -name "build.gradle" -exec sed -i 's/JavaVersion.VERSION_17/JavaVersion.VERSION_21/g' {} +
-          # Injection du plugin vocal
-          echo "import com.getcapacitor.community.speechrecognition.SpeechRecognition;" > temp_import.txt
-          sed -i '/import com.getcapacitor.BridgeActivity;/r temp_import.txt' android/app/src/main/java/com/tilawa/sourate/MainActivity.java
-          sed -i 's/public class MainActivity extends BridgeActivity {/public class MainActivity extends BridgeActivity {\n  @Override\n  public void onCreate(android.os.Bundle savedInstanceState) {\n    super.onCreate(savedInstanceState);\n    registerPlugin(SpeechRecognition.class);\n  }/' android/app/src/main/java/com/tilawa/sourate/MainActivity.java
-          # Compilation
+          # Juste l'ajout du plugin sans toucher au reste
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug
