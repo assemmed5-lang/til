@@ -9,7 +9,7 @@ jobs:
         with: { node-version: 22 }
       - uses: actions/setup-java@v4
         with: { java-version: '21', distribution: 'temurin' }
-      - name: Build and Permissions
+      - name: Build and Register Plugin
         run: |
           mkdir -p www
           cp index.html www/
@@ -18,8 +18,9 @@ jobs:
           npx cap init Tilawa com.tilawa.sourate --web-dir www
           npx cap add android
           
-          # Ajout de la permission micro dans le Manifest Android
-          sed -i '/<uses-permission android:name="android.permission.INTERNET" \/>/a \    <uses-permission android:name="android.permission.RECORD_AUDIO" />' android/app/src/main/AndroidManifest.xml
+          # Enregistrement officiel du plugin dans la MainActivity
+          sed -i '/import com.getcapacitor.BridgeActivity;/a import com.getcapacitor.community.speechrecognition.SpeechRecognition;' android/app/src/main/java/com/tilawa/sourate/MainActivity.java
+          sed -i '/public class MainActivity extends BridgeActivity {/a \  @Override\n  public void onCreate(android.os.Bundle savedInstanceState) {\n    super.onCreate(savedInstanceState);\n    registerPlugin(SpeechRecognition.class);\n  }' android/app/src/main/java/com/tilawa/sourate/MainActivity.java
           
           cd android
           chmod +x gradlew
