@@ -714,7 +714,7 @@ async function startRecog() {
           recog.onend = restartRecog;
           recog.start();
         } catch(e) {}
-      }, 100);
+      }, 0);
     }
 
     recog = new SR();
