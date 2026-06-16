@@ -782,8 +782,18 @@ async function startRecog() {
       G("transcript").style.display = "block";
       G("current-word").textContent = lastFullTx.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || "—";
     });
+    window._srListenerFinal = await SRPlugin.addListener("listeningState", data => {
+      if (data.status === "stopped" && lastFullTx) {
+        finalTx = lastFullTx;
+      }
+    });
     try {
-      await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false });
+      await SRPlugin.start({
+        language: "ar-SA",
+        partialResults: true,
+        popup: false,
+        maxDuration: 60
+      });
     } catch(e) {
       alert("خطأ في بدء التعرف: " + e.message);
     }
@@ -827,6 +837,7 @@ G("btn-rec-stop").addEventListener("click", async () => {
   if (SRPlugin) {
     try { await SRPlugin.stop(); } catch(e) {}
     if (window._srListener) { try { window._srListener.remove(); } catch(e){} window._srListener = null; }
+    if (window._srListenerFinal) { try { window._srListenerFinal.remove(); } catch(e){} window._srListenerFinal = null; }
     G("mic-ring").classList.remove("on");
   } else {
     if (recog) { try { recog.stop(); } catch(e) {} }
