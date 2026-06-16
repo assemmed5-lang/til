@@ -8,8 +8,8 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - uses: actions/setup-java@v4
-        with: { java-version: '21', distribution: 'temurin' }
-      - name: Build and Register Plugin
+        with: { java-version: '17', distribution: 'temurin' }
+      - name: Build and Fix Java
         run: |
           mkdir -p www
           cp index.html www/
@@ -18,9 +18,19 @@ jobs:
           npx cap init Tilawa com.tilawa.sourate --web-dir www
           npx cap add android
           
-          # Enregistrement officiel du plugin dans la MainActivity
-          sed -i '/import com.getcapacitor.BridgeActivity;/a import com.getcapacitor.community.speechrecognition.SpeechRecognition;' android/app/src/main/java/com/tilawa/sourate/MainActivity.java
-          sed -i '/public class MainActivity extends BridgeActivity {/a \  @Override\n  public void onCreate(android.os.Bundle savedInstanceState) {\n    super.onCreate(savedInstanceState);\n    registerPlugin(SpeechRecognition.class);\n  }' android/app/src/main/java/com/tilawa/sourate/MainActivity.java
+          # On crée un fichier MainActivity.java propre et complet
+          echo 'package com.tilawa.sourate;
+          import com.getcapacitor.BridgeActivity;
+          import android.os.Bundle;
+          import com.getcapacitor.community.speechrecognition.SpeechRecognition;
+
+          public class MainActivity extends BridgeActivity {
+              @Override
+              public void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  registerPlugin(SpeechRecognition.class);
+              }
+          }' > android/app/src/main/java/com/tilawa/sourate/MainActivity.java
           
           cd android
           chmod +x gradlew
