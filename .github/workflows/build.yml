@@ -22,9 +22,9 @@ jobs:
           cp *.mp3 www/ 2>/dev/null || true
           npx cap add android
           npx cap sync
-          find android -name "AndroidManifest.xml" | head -5
           MANIFEST=$(find android/app -name "AndroidManifest.xml" | head -1)
-          sed -i "s|</manifest>|<uses-permission android:name=\"android.permission.RECORD_AUDIO\"/><uses-permission android:name=\"android.permission.INTERNET\"/></manifest>|" "$MANIFEST"      - name: Set Gradle version
+          sed -i "s|</manifest>|<uses-permission android:name=\"android.permission.RECORD_AUDIO\"/><uses-permission android:name=\"android.permission.INTERNET\"/></manifest>|" "$MANIFEST"
+      - name: Set Gradle version
         run: |
           cd android
           sed -i 's|gradle-.*-all.zip|gradle-8.13-all.zip|g' gradle/wrapper/gradle-wrapper.properties
