@@ -1,9 +1,1 @@
-{
-  "appId": "com.tilawa.sourate",
-  "appName": "Tilawa",
-  "webDir": "www",
-  "androidScheme": "https",
-  "android": {
-    "allowMixedContent": true
-  }
-}
+
