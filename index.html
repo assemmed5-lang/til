@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
@@ -758,48 +758,74 @@ G("btn-listen-stop").addEventListener("click", () => {
 /* ══════════════════════════════════════════════
    SPEECH RECOGNITION
    ══════════════════════════════════════════════ */
-function startRecog() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { alert("التعرف الصوتي غير مدعوم.\nاستخدم Chrome أو Edge."); return; }
-  recog = new SR();
-  recog.lang = "ar-SA"; recog.continuous = true; recog.interimResults = true; recog.maxAlternatives = 3;
-  recog.onstart = () => {
+async function startRecog() {
+  const SRPlugin = window.Capacitor?.Plugins?.SpeechRecognition;
+
+  if (SRPlugin) {
+    // Mode APK natif
+    const { available } = await SRPlugin.available();
+    if (!available) { alert("التعرف الصوتي غير متاح على هذا الجهاز"); return; }
+    await SRPlugin.requestPermission();
     G("mic-ring").classList.add("on");
     G("rec-status").textContent = "جارٍ الاستماع... تكلّم الآن!";
-    const t = G("transcript"); t.style.display = "block"; t.textContent = "...";
-    G("current-word-label").textContent = "أنت تقول:";
+    G("transcript").style.display = "block";
+    G("transcript").textContent = "...";
     G("current-word").textContent = "—";
-  };
-  recog.onresult = e => {
-    let interim = "";
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      if (e.results[i].isFinal) finalTx += e.results[i][0].transcript + " ";
-      else interim += e.results[i][0].transcript;
-    }
-    const candidate = (finalTx + interim).trim();
-    if (candidate.length >= lastFullTx.length) lastFullTx = candidate;
-    G("transcript").textContent = lastFullTx || "...";
-    G("current-word-label").textContent = "أنت تقول:";
-    const lastWord = lastFullTx.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || "—";
-    G("current-word").textContent = lastWord;
-  };
-  recog.onerror = e => { G("mic-ring").classList.remove("on"); G("rec-status").textContent = e.error === "no-speech" ? "لم يُكتشف صوت، حاول مجدداً" : "خطأ: " + e.error; };
-  recog.onend = () => G("mic-ring").classList.remove("on");
-  recog.start();
+    window._srListener = SRPlugin.addListener("partialResults", data => {
+      const txt = (data.matches && data.matches[0]) ? data.matches[0] : "";
+      if (txt.length >= lastFullTx.length) lastFullTx = txt;
+      finalTx = lastFullTx;
+      G("transcript").textContent = lastFullTx || "...";
+      G("current-word").textContent = lastFullTx.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || "—";
+    });
+    await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false });
+
+  } else {
+    // Mode navigateur Chrome
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { alert("التعرف الصوتي غير مدعوم.\nاستخدم Chrome أو Edge."); return; }
+    recog = new SR();
+    recog.lang = "ar-SA"; recog.continuous = true; recog.interimResults = true; recog.maxAlternatives = 3;
+    recog.onstart = () => {
+      G("mic-ring").classList.add("on");
+      G("rec-status").textContent = "جارٍ الاستماع... تكلّم الآن!";
+      const t = G("transcript"); t.style.display = "block"; t.textContent = "...";
+      G("current-word").textContent = "—";
+    };
+    recog.onresult = e => {
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) finalTx += e.results[i][0].transcript + " ";
+        else interim += e.results[i][0].transcript;
+      }
+      const candidate = (finalTx + interim).trim();
+      if (candidate.length >= lastFullTx.length) lastFullTx = candidate;
+      G("transcript").textContent = lastFullTx || "...";
+      G("current-word").textContent = lastFullTx.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || "—";
+    };
+    recog.onerror = e => { G("mic-ring").classList.remove("on"); G("rec-status").textContent = e.error === "no-speech" ? "لم يُكتشف صوت، حاول مجدداً" : "خطأ: " + e.error; };
+    recog.onend = () => G("mic-ring").classList.remove("on");
+    recog.start();
+  }
 }
 G("btn-rec-start").addEventListener("click", () => {
   G("btn-rec-start").classList.add("hidden");
   G("btn-rec-stop").classList.remove("hidden");
   startRecog();
 });
-G("btn-rec-stop").addEventListener("click", () => {
-  if (recog) recog.stop();
+
+G("btn-rec-stop").addEventListener("click", async () => {
+  const SRPlugin = window.Capacitor?.Plugins?.SpeechRecognition;
+  if (SRPlugin) {
+    await SRPlugin.stop();
+    if (window._srListener) { window._srListener.remove(); window._srListener = null; }
+    G("mic-ring").classList.remove("on");
+  } else {
+    if (recog) recog.stop();
+  }
   G("btn-rec-stop").classList.add("hidden");
   G("rec-status").textContent = "جارٍ التحليل...";
   setTimeout(() => {
-    // If no result was ever marked "final" (common with continuous mode),
-    // fall back to the last transcript shown on screen (interim results)
-    // instead of evaluating against an empty string.
     if (!finalTx.trim() && lastFullTx) finalTx = lastFullTx;
     evaluate();
   }, 900);
