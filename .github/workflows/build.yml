@@ -26,8 +26,8 @@ jobs:
           MANIFEST=$(find android/app -name "AndroidManifest.xml" | head -1)
           sed -i "s|</manifest>|<uses-permission android:name=\"android.permission.RECORD_AUDIO\"/><uses-permission android:name=\"android.permission.INTERNET\"/></manifest>|" "$MANIFEST"
           MAIN=$(find android/app -name "MainActivity.java" | head -1)
-          sed -i 's/import com.getcapacitor.BridgeActivity;/import com.getcapacitor.BridgeActivity;\nimport com.capacitorjs.plugins.speechrecognition.SpeechRecognitionPlugin;/' "$MAIN"
-          sed -i 's/public class MainActivity extends BridgeActivity {}/public class MainActivity extends BridgeActivity {\n  @Override\n  public void onCreate(android.os.Bundle savedInstanceState) {\n    registerPlugin(SpeechRecognitionPlugin.class);\n    super.onCreate(savedInstanceState);\n  }\n}/' "$MAIN"      
+          sed -i 's/import com.getcapacitor.BridgeActivity;/import com.getcapacitor.BridgeActivity;\nimport com.getcapacitor.community.speechrecognition.SpeechRecognition;/' "$MAIN"
+          sed -i 's/public class MainActivity extends BridgeActivity {}/public class MainActivity extends BridgeActivity {\n  @Override\n  public void onCreate(android.os.Bundle savedInstanceState) {\n    registerPlugin(SpeechRecognition.class);\n    super.onCreate(savedInstanceState);\n  }\n}/' "$MAIN"      
       - name: Set Gradle version
         run: |
           cd android
