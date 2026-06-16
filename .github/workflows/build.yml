@@ -8,8 +8,8 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - uses: actions/setup-java@v4
-        with: { java-version: '17', distribution: 'temurin' }
-      - name: Build and Fix Java
+        with: { java-version: '21', distribution: 'temurin' }
+      - name: Build and Patch
         run: |
           mkdir -p www
           cp index.html www/
@@ -18,12 +18,11 @@ jobs:
           npx cap init Tilawa com.tilawa.sourate --web-dir www
           npx cap add android
           
-          # On crée un fichier MainActivity.java propre et complet
+          # 1. Création du fichier MainActivity.java propre
           echo 'package com.tilawa.sourate;
           import com.getcapacitor.BridgeActivity;
           import android.os.Bundle;
           import com.getcapacitor.community.speechrecognition.SpeechRecognition;
-
           public class MainActivity extends BridgeActivity {
               @Override
               public void onCreate(Bundle savedInstanceState) {
@@ -31,6 +30,10 @@ jobs:
                   registerPlugin(SpeechRecognition.class);
               }
           }' > android/app/src/main/java/com/tilawa/sourate/MainActivity.java
+          
+          # 2. Forcer la version Java dans Gradle pour éviter l'erreur de source release
+          sed -i 's/sourceCompatibility JavaVersion.VERSION_17/sourceCompatibility JavaVersion.VERSION_21/g' android/app/build.gradle
+          sed -i 's/targetCompatibility JavaVersion.VERSION_17/targetCompatibility JavaVersion.VERSION_21/g' android/app/build.gradle
           
           cd android
           chmod +x gradlew
