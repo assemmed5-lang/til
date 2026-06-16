@@ -25,7 +25,7 @@ jobs:
       - name: Set Gradle version
         run: |
           cd android
-          sed -i 's|gradle-.*-all.zip|gradle-8.7-all.zip|g' gradle/wrapper/gradle-wrapper.properties
+          sed -i 's|gradle-.*-all.zip|gradle-8.13-all.zip|g' gradle/wrapper/gradle-wrapper.properties
       - name: Build APK
         run: |
           cd android
