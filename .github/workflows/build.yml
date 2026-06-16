@@ -22,7 +22,6 @@ jobs:
           python3 -c "import json; open('capacitor.config.json','w').write(json.dumps({'appId':'com.tilawa.sourate','appName':'Tilawa','webDir':'www','androidScheme':'https','android':{'allowMixedContent':True}}, indent=2))"
 
           npx cap add android
-
           npx cap sync android
 
           MANIFEST=$(find android/app -name "AndroidManifest.xml" | head -1)
