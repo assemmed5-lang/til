@@ -621,38 +621,30 @@ function tick() {
     const pauseDur = (segDur / rate) * 1.5;
 
     /* ── Activer micro pendant la pause ──
-       Sur Android (Capacitor) : utilise le plugin natif
-       Sur PC (Chrome)         : utilise l'API navigateur                */
+       Sur Android (Capacitor) : PAS de micro pendant la pause —
+         l'audio et le micro ne peuvent pas coexister dans la WebView Android,
+         le play() suivant échouerait silencieusement et l'app se figerait.
+       Sur PC (Chrome) : utilise l'API navigateur normalement.             */
     const SRPlug = window.Capacitor?.Plugins?.SpeechRecognition;
     const SRBrowser = window.SpeechRecognition || window.webkitSpeechRecognition;
-    window._pauseCapActive = false;
     window._pauseRecog = null;
 
-    if (phase === "listen") {
-      if (SRPlug) {
-        window._pauseCapActive = true;
-        SRPlug.addListener("partialResults", data => {
-          const txt = (data.matches && data.matches[0]) ? data.matches[0] : "";
-          if (txt) G("current-word").textContent = txt.trim().split(/\s+/).slice(-1)[0] || "—";
-        }).then(h => { window._pauseListener = h; }).catch(() => {});
-        SRPlug.start({ language: "ar-SA", partialResults: true, popup: false }).catch(() => {});
-      } else if (SRBrowser) {
-        const pr = new SRBrowser();
-        pr.lang = "ar-SA";
-        pr.continuous = true;
-        pr.interimResults = true;
-        pr.onresult = e => {
-          let txt = "";
-          for (let i = e.resultIndex; i < e.results.length; i++) txt += e.results[i][0].transcript;
-          G("current-word").textContent = txt.trim().split(/\s+/).slice(-1)[0] || "—";
-        };
-        window._pauseRecog = pr;
-        try { pr.start(); } catch(e) {}
-      }
+    if (phase === "listen" && !SRPlug && SRBrowser) {
+      const pr = new SRBrowser();
+      pr.lang = "ar-SA";
+      pr.continuous = true;
+      pr.interimResults = true;
+      pr.onresult = e => {
+        let txt = "";
+        for (let i = e.resultIndex; i < e.results.length; i++) txt += e.results[i][0].transcript;
+        G("current-word").textContent = txt.trim().split(/\s+/).slice(-1)[0] || "—";
+      };
+      window._pauseRecog = pr;
+      try { pr.start(); } catch(e) {}
     }
 
     setTimeout(() => {
-      stopPauseRecog();
+      if (window._pauseRecog) { try { window._pauseRecog.stop(); } catch(e){} window._pauseRecog = null; }
       G("current-word").textContent = "—";
       tick();
     }, pauseDur);
@@ -717,20 +709,22 @@ async function startRecog() {
     if (window._srListener) { try { window._srListener.remove(); } catch(e){} window._srListener = null; }
     if (window._srListenerFinal) { try { window._srListenerFinal.remove(); } catch(e){} window._srListenerFinal = null; }
 
-    SRPlugin.addListener("partialResults", data => {
-      const txt = (data.matches && data.matches[0]) ? data.matches[0] : "";
-      if (txt.length >= lastFullTx.length) {
-        lastFullTx = txt;
-        finalTx = txt;
-      }
-      G("transcript").textContent = lastFullTx || "...";
-      G("transcript").style.display = "block";
-      G("current-word").textContent = lastFullTx.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || "—";
-    }).then(h => { window._srListener = h; }).catch(() => {});
-
-    SRPlugin.addListener("listeningState", data => {
-      if (data.status === "stopped" && lastFullTx) finalTx = lastFullTx;
-    }).then(h => { window._srListenerFinal = h; }).catch(() => {});
+    /* ── await listener AVANT start() pour éviter la perte des premiers résultats ── */
+    try {
+      window._srListener = await SRPlugin.addListener("partialResults", data => {
+        const txt = (data.matches && data.matches[0]) ? data.matches[0] : "";
+        if (txt.length >= lastFullTx.length) {
+          lastFullTx = txt;
+          finalTx = txt;
+        }
+        G("transcript").textContent = lastFullTx || "...";
+        G("transcript").style.display = "block";
+        G("current-word").textContent = lastFullTx.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || "—";
+      });
+      window._srListenerFinal = await SRPlugin.addListener("listeningState", data => {
+        if (data.status === "stopped" && lastFullTx) finalTx = lastFullTx;
+      });
+    } catch(e) {}
 
     try {
       await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false });
