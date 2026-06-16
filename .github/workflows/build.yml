@@ -21,6 +21,7 @@ jobs:
           cp index.html www/
           cp *.mp3 www/ 2>/dev/null || true
           npx cap add android
+          npm install @capacitor-community/speech-recognition
           npx cap sync
           MANIFEST=$(find android/app -name "AndroidManifest.xml" | head -1)
           sed -i "s|</manifest>|<uses-permission android:name=\"android.permission.RECORD_AUDIO\"/><uses-permission android:name=\"android.permission.INTERNET\"/></manifest>|" "$MANIFEST"
