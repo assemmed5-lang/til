@@ -16,7 +16,6 @@ jobs:
           cp *.mp3 www/ 2>/dev/null || true
 
           echo '{"name":"tilawa","version":"1.0.0","private":true}' > package.json
-
           npm install @capacitor/core@5 @capacitor/cli@5 @capacitor/android@5 @capacitor-community/speech-recognition@5
 
           python3 -c "import json; open('capacitor.config.json','w').write(json.dumps({'appId':'com.tilawa.sourate','appName':'Tilawa','webDir':'www','androidScheme':'https','android':{'allowMixedContent':True}}, indent=2))"
@@ -25,13 +24,38 @@ jobs:
           npx cap sync android
 
           MANIFEST=$(find android/app -name "AndroidManifest.xml" | head -1)
-          sed -i 's|<application|<uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <application|' "$MANIFEST"
-          
-          python3 -c "open('android/app/src/main/java/com/tilawa/sourate/MainActivity.java','w').write('package com.tilawa.sourate;\nimport com.getcapacitor.BridgeActivity;\nimport android.os.Bundle;\nimport com.getcapacitor.community.speechrecognition.SpeechRecognition;\npublic class MainActivity extends BridgeActivity {\n    @Override\n    public void onCreate(Bundle savedInstanceState) {\n        registerPlugin(SpeechRecognition.class);\n        super.onCreate(savedInstanceState);\n    }\n}\n')"
+          sed -i 's|<application|<uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>\n    <application|' "$MANIFEST"
+
+          cat > MainActivity.java << 'JAVAEOF'
+          package com.tilawa.sourate;
+          import com.getcapacitor.BridgeActivity;
+          import android.os.Bundle;
+          import android.webkit.PermissionRequest;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebView;
+          import com.getcapacitor.community.speechrecognition.SpeechRecognition;
+          public class MainActivity extends BridgeActivity {
+              @Override
+              public void onCreate(Bundle savedInstanceState) {
+                  registerPlugin(SpeechRecognition.class);
+                  super.onCreate(savedInstanceState);
+                  WebView webView = getBridge().getWebView();
+                  webView.setWebChromeClient(new WebChromeClient() {
+                      @Override
+                      public void onPermissionRequest(PermissionRequest request) {
+                          request.grant(request.getResources());
+                      }
+                  });
+              }
+          }
+          JAVAEOF
+
+          cp MainActivity.java android/app/src/main/java/com/tilawa/sourate/MainActivity.java
 
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug
+
       - uses: actions/upload-artifact@v4
         with:
           name: mon-apk
