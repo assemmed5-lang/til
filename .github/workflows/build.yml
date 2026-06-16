@@ -7,29 +7,32 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
       - uses: actions/setup-java@v4
         with:
-          java-version: 21
+          java-version: 17
           distribution: temurin
       - name: Install Capacitor
         run: |
           npm init -y
-          npm install @capacitor/core @capacitor/cli @capacitor/android
+          npm install @capacitor/core@latest @capacitor/cli@latest @capacitor/android@latest
           npx cap init "Tilawa" "com.tilawa.sourate" --web-dir www
           mkdir www
           cp index.html www/
           cp *.mp3 www/ 2>/dev/null || true
           npx cap add android
           npx cap sync
+      - name: Set Gradle version
+        run: |
+          cd android
+          sed -i 's|gradle-.*-all.zip|gradle-8.7-all.zip|g' gradle/wrapper/gradle-wrapper.properties
       - name: Build APK
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon --stacktrace
+          ./gradlew assembleDebug --no-daemon
         env:
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx2048m"
-          JAVA_TOOL_OPTIONS: "-Dfile.encoding=UTF-8"
       - uses: actions/upload-artifact@v4
         with:
           name: tilawa-apk
