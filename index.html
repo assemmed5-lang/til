@@ -992,6 +992,6 @@ G("btn-restart").addEventListener("click", () => {
 navigator.mediaDevices.getUserMedia({ audio: true })
   .then(stream => { stream.getTracks().forEach(t => t.stop()); startSession(); })
   .catch(() => startSession());
-</script>
+<script src="capacitor.js"></script>
 </body>
 </html>
