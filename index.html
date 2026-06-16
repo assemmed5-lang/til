@@ -679,6 +679,28 @@ G("btn-listen-stop").addEventListener("click", () => {
    Capacitor grâce à androidScheme:'https' (origine sécurisée).
    Le plugin natif Capacitor n'est utilisé qu'en dernier recours.
    ══════════════════════════════════════════════ */
+let _silenceNode = null;
+
+function startSilenceFiller() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.frequency.value = 100;
+    gain.gain.value = 0.001;
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    _silenceNode = { osc, ctx };
+  } catch(e) {}
+}
+
+function stopSilenceFiller() {
+  if (_silenceNode) {
+    try { _silenceNode.osc.stop(); _silenceNode.ctx.close(); } catch(e) {}
+    _silenceNode = null;
+  }
+}
 async function startRecog() {
   finalTx = ""; lastFullTx = "";
 
@@ -740,6 +762,9 @@ async function startRecog() {
             if (e.error !== "aborted") G("rec-status").textContent = "خطأ: " + e.error;
           };
           recog.onend = restartRecog;
+          startSilenceFiller();
+          window._recogActive = true;
+          recog.start();
           recog.start();
         } catch(e) {}
       }, 100);
@@ -799,6 +824,8 @@ G("btn-rec-start").addEventListener("click", () => {
 });
 
 G("btn-rec-stop").addEventListener("click", () => {
+  stopSilenceFiller();
+  window._recogActive = false; 
   window._recogActive = false;
   if (recog) { try { recog.stop(); } catch(e) {} recog = null; }
   const SRPlugin = window.Capacitor?.Plugins?.SpeechRecognition;
