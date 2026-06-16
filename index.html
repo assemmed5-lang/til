@@ -681,10 +681,10 @@ G("btn-listen-stop").addEventListener("click", () => {
    Le plugin natif Capacitor n'est utilisé qu'en dernier recours.
    ══════════════════════════════════════════════ */
 async function startRecog() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  finalTx = ""; lastFullTx = "";
 
-  finalTx = "";
-  lastFullTx = "";
+  const SRPlugin = window.Capacitor?.Plugins?.SpeechRecognition;
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
   if (SR) {
     /* ── webkitSpeechRecognition : Chrome PC + WebView Android ── */
