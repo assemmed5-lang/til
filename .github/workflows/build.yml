@@ -17,19 +17,18 @@ jobs:
 
           echo '{"name":"tilawa","version":"1.0.0","private":true}' > package.json
 
-          npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor-community/speech-recognition
+          npm install @capacitor/core@5 @capacitor/cli@5 @capacitor/android@5 @capacitor-community/speech-recognition@5
 
           python3 -c "import json; open('capacitor.config.json','w').write(json.dumps({'appId':'com.tilawa.sourate','appName':'Tilawa','webDir':'www','androidScheme':'https','android':{'allowMixedContent':True}}, indent=2))"
 
           npx cap add android
 
+          npx cap sync android
+
           MANIFEST=$(find android/app -name "AndroidManifest.xml" | head -1)
           sed -i 's|</manifest>|    <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n</manifest>|' "$MANIFEST"
 
           python3 -c "open('android/app/src/main/java/com/tilawa/sourate/MainActivity.java','w').write('package com.tilawa.sourate;\nimport com.getcapacitor.BridgeActivity;\nimport android.os.Bundle;\nimport com.getcapacitor.community.speechrecognition.SpeechRecognition;\npublic class MainActivity extends BridgeActivity {\n    @Override\n    public void onCreate(Bundle savedInstanceState) {\n        registerPlugin(SpeechRecognition.class);\n        super.onCreate(savedInstanceState);\n    }\n}\n')"
-
-          sed -i 's/sourceCompatibility JavaVersion.VERSION_17/sourceCompatibility JavaVersion.VERSION_21/g' android/app/build.gradle
-          sed -i 's/targetCompatibility JavaVersion.VERSION_17/targetCompatibility JavaVersion.VERSION_21/g' android/app/build.gradle
 
           cd android
           chmod +x gradlew
