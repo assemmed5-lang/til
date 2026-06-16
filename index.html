@@ -686,7 +686,6 @@ async function startRecog() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
   if (SR) {
-    /* ── webkitSpeechRecognition : Chrome PC + WebView Android ── */
     recog = new SR();
     recog.lang = "ar-SA";
     recog.continuous = true;
@@ -711,19 +710,45 @@ async function startRecog() {
       G("current-word").textContent = lastFullTx.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || "—";
     };
     recog.onerror = e => {
-      G("mic-ring").classList.remove("on");
-      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-        G("rec-status").textContent = "الإذن بالميكروفون مرفوض. تحقق من إعدادات التطبيق.";
-      } else {
-        G("rec-status").textContent = e.error === "no-speech" ? "لم يُكتشف صوت، حاول مجدداً" : "خطأ: " + e.error;
-      }
-    };
-    recog.onend = () => {
-      G("mic-ring").classList.remove("on");
-      if (!finalTx.trim() && lastFullTx) finalTx = lastFullTx;
+      if (e.error !== "aborted") G("rec-status").textContent = "خطأ: " + e.error;
     };
 
+    function restartRecog() {
+      G("mic-ring").classList.remove("on");
+      if (!finalTx.trim() && lastFullTx) finalTx = lastFullTx;
+      if (!window._recogActive) return;
+      setTimeout(() => {
+        try {
+          recog = new SR();
+          recog.lang = "ar-SA";
+          recog.continuous = true;
+          recog.interimResults = true;
+          recog.maxAlternatives = 3;
+          recog.onstart = () => { G("mic-ring").classList.add("on"); };
+          recog.onresult = e => {
+            let interim = "";
+            for (let i = e.resultIndex; i < e.results.length; i++) {
+              if (e.results[i].isFinal) finalTx += e.results[i][0].transcript + " ";
+              else interim += e.results[i][0].transcript;
+            }
+            const candidate = (finalTx + interim).trim();
+            if (candidate.length >= lastFullTx.length) lastFullTx = candidate;
+            G("transcript").textContent = lastFullTx || "...";
+            G("current-word").textContent = lastFullTx.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || "—";
+          };
+          recog.onerror = e => {
+            if (e.error !== "aborted") G("rec-status").textContent = "خطأ: " + e.error;
+          };
+          recog.onend = restartRecog;
+          recog.start();
+        } catch(e) {}
+      }, 100);
+    }
+
+    recog.onend = restartRecog;
+
     try {
+      window._recogActive = true;
       recog.start();
     } catch(e) {
       G("rec-status").textContent = "لا يمكن بدء التعرف الصوتي: " + e.message;
@@ -732,7 +757,6 @@ async function startRecog() {
     }
 
   } else {
-    /* ── Fallback : plugin Capacitor natif (si webkitSR absent) ── */
     const SRPlugin = window.Capacitor?.Plugins?.SpeechRecognition;
     if (!SRPlugin) {
       G("rec-status").textContent = "التعرف الصوتي غير مدعوم على هذا الجهاز.";
@@ -775,9 +799,8 @@ G("btn-rec-start").addEventListener("click", () => {
 });
 
 G("btn-rec-stop").addEventListener("click", () => {
-  /* webkitSpeechRecognition (chemin principal) */
+  window._recogActive = false;
   if (recog) { try { recog.stop(); } catch(e) {} recog = null; }
-  /* Plugin Capacitor (chemin de secours) */
   const SRPlugin = window.Capacitor?.Plugins?.SpeechRecognition;
   if (SRPlugin) {
     try { SRPlugin.stop(); } catch(e) {}
