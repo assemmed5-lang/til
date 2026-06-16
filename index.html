@@ -40,7 +40,6 @@ body { display: flex; flex-direction: column; font-family: 'Traditional Arabic',
 .btn-ghost { background: rgba(255,255,255,0.12); color: #ccc; }
 .hidden { display: none !important; }
 audio { position:fixed; bottom:-100px; left:-100px; width:1px; height:1px; }
-/* invisible elements kept for JS logic */
 #current-word-label,#card-setup,#card-listen,#card-recite,#card-result,
 #ayah-full-box,#exam-ayahs-box,#transcript,#progress-track,#mic-ring,
 #score-box,#word-grid,#n-missing,#n-extra,.words-lbl { display:none !important; }
@@ -58,7 +57,6 @@ audio { position:fixed; bottom:-100px; left:-100px; width:1px; height:1px; }
   <button class="btn btn-ghost hidden" id="btn-restart">↩</button>
 </div>
 
-<!-- hidden elements required by JS -->
 <div id="current-word-label" style="display:none"></div>
 <div id="card-setup" style="display:none"></div>
 <audio id="audio-player"></audio>
@@ -84,25 +82,11 @@ audio { position:fixed; bottom:-100px; left:-100px; width:1px; height:1px; }
   <div id="n-extra" class="hidden"></div>
 </div>
 <script>
-/* ══════════════════════════════════════════════
-   PEDAGOGICAL ENGINE
-   
-   Phases auto-sequence:
-     For each verse N (0-indexed):
-       PHASE "listen_N"  → play verse N alone, (10 + N) times
-       PHASE "exam_0..N" → recite verses 0..N together
-         PASS → move to listen_N+1  (or done if last verse)
-         FAIL → retry: play failed_verses 2 times → re-exam same range
-   ══════════════════════════════════════════════ */
-
 const G = id => document.getElementById(id);
 
-/* ─── STORAGE ─── */
 function loadBank() { try { return JSON.parse(localStorage.getItem("tilawa_bank")||"[]"); } catch { return []; } }
 function saveBank(b) { localStorage.setItem("tilawa_bank", JSON.stringify(b)); }
 
-/* ─── SRT PARSER ─── */
-/* Returns cues where each cue = one SRT block (may be a phrase or a whole verse) */
 function parseSRT(txt) {
   const cues = [];
   const toSec = (h,mn,s) => +h*3600 + +mn*60 + parseFloat(s.replace(",","."));
@@ -133,7 +117,6 @@ function parseSRT(txt) {
   return cues;
 }
 
-/* ─── NORMALISE ─── */
 function norm(s) {
   return s
     .replace(/[\u064B-\u065F\u0670\u0671]/g,"")
@@ -141,35 +124,19 @@ function norm(s) {
     .replace(/\s+/g," ").trim().toLowerCase();
 }
 
-/* ─── FIND VERSE TIMING ─── */
-/*
-   Strategy: concatenate all SRT cue texts, find where verseText starts/ends
-   in that stream, then map back to audio start/end timestamps.
-   Works whether SRT has 1 word/line or many words/line.
-*/
 function findVerseWindow(allCues, verseText) {
   if (!allCues.length || !verseText) return null;
-
   const nv = norm(verseText);
   const nvWords = nv.split(/\s+/).filter(Boolean);
   if (!nvWords.length) return null;
-
-  // Build word-level list from all cues (each cue may have multiple words)
-  const wordList = []; // { word, start, end }
+  const wordList = [];
   allCues.forEach(cue => {
     const ws = cue.text.split(/\s+/).filter(Boolean);
     ws.forEach((w, i) => {
-      // Distribute time evenly across words inside one cue
       const dur = (cue.end - cue.start) / ws.length;
-      wordList.push({
-        word: norm(w),
-        start: cue.start + i * dur,
-        end:   cue.start + (i+1) * dur
-      });
+      wordList.push({ word: norm(w), start: cue.start + i * dur, end: cue.start + (i+1) * dur });
     });
   });
-
-  // Slide over wordList looking for best match with nvWords
   let bestStart = -1, bestEnd = -1, bestScore = 0;
   for (let i = 0; i <= wordList.length - nvWords.length; i++) {
     let score = 0;
@@ -182,37 +149,25 @@ function findVerseWindow(allCues, verseText) {
       bestStart = wordList[i].start;
       bestEnd   = wordList[i + nvWords.length - 1].end;
     }
-    if (bestScore === 1) break; // perfect match, stop early
+    if (bestScore === 1) break;
   }
-
-  // If no good match (< 40%), fall back to dividing equally
   if (bestScore < 0.4) return null;
   return { start: bestStart, end: bestEnd, score: bestScore };
 }
 
-/* Legacy: find individual word cues for word-highlight display */
 function findVerseCues(allCues, verseText) {
   if (!allCues.length || !verseText) return [];
   const nv = norm(verseText);
   const nvWords = nv.split(/\s+/).filter(Boolean);
   if (!nvWords.length) return [];
-
-  // Build word-level list
   const wordList = [];
   allCues.forEach(cue => {
     const ws = cue.text.split(/\s+/).filter(Boolean);
     ws.forEach((w, i) => {
       const dur = (cue.end - cue.start) / ws.length;
-      wordList.push({
-        word: norm(w),
-        text: w,
-        start: cue.start + i * dur,
-        end:   cue.start + (i+1) * dur
-      });
+      wordList.push({ word: norm(w), text: w, start: cue.start + i * dur, end: cue.start + (i+1) * dur });
     });
   });
-
-  // Find best matching window
   let bestIdx = 0, bestScore = 0;
   for (let i = 0; i <= wordList.length - nvWords.length; i++) {
     let score = 0;
@@ -222,11 +177,9 @@ function findVerseCues(allCues, verseText) {
     if (score > bestScore) { bestScore = score; bestIdx = i; }
     if (bestScore === nvWords.length) break;
   }
-
   return wordList.slice(bestIdx, bestIdx + nvWords.length);
 }
 
-/* ─── STATE ─── */
 let verseCues  = [];
 let wordCues   = [];
 let audioUrl   = "001.mp3";
@@ -374,16 +327,10 @@ verseCues = parseSRT(srtVersesText);
 wordCues  = parseSRT(srtWordsText);
 verses    = verseCues.map(c => c.text.split(/\n/).filter(l => !/-->/.test(l) && !/^\d+$/.test(l.trim())).join(" ").trim());
 
-/* ─── BANK UI ─── */
 function renderBank() {}
 function delFromBank(i) {}
 function loadFromBank(i) {}
 
-/* ─── UPLOAD ─── */
-
-/* ══════════════════════════════════════════════
-   SESSION START
-   ══════════════════════════════════════════════ */
 function startSession() {
   curVerseIdx = 0;
   examUpTo    = 0;
@@ -399,11 +346,8 @@ function startSession() {
   beginListenPhase();
 }
 
-/* ─── PROGRESS TRACK ─── */
 function buildProgressTrack() {
   const track = G("progress-track"); track.innerHTML = "";
-  // One step per verse (listen) + one per exam = 2*N steps total
-  // We just show N verse dots
   verses.forEach((_, i) => {
     const d = document.createElement("div");
     d.className = "pt-step"; d.id = "pt-" + i;
@@ -421,19 +365,13 @@ function updateProgressTrack() {
   });
 }
 
-/* ══════════════════════════════════════════════
-   LISTEN PHASE — play verse curVerseIdx alone
-   reps = 10 + curVerseIdx
-   ══════════════════════════════════════════════ */
 function beginListenPhase() {
   phase = "listen";
   updateProgressTrack();
-
-  const reps = 10 + Math.max(0, curVerseIdx - 1);  // v1→10, v2→10, v3→11, v4→12 …
+  const reps = 10 + Math.max(0, curVerseIdx - 1);
   repTotal = reps; repCur = 0;
   G("btn-listen-start").disabled = false;
   playing = false; stopped = false;
-
   const vText = verses[curVerseIdx];
   G("phase-label").textContent = "الآية " + (curVerseIdx+1) + " — استمع " + reps + " مرات";
   G("ayah-full-text").textContent = vText;
@@ -453,32 +391,23 @@ function beginListenPhase() {
   G("card-recite").classList.add("hidden");
   G("card-result").classList.add("hidden");
   G("card-listen").scrollIntoView({ behavior:"smooth", block:"start" });
-
-  // DIRECT: verseCues[i] = timing exact du verset i, zéro matching
   const vc = verseCues[curVerseIdx];
   if (vc) {
     window._activeWindow = { start: vc.start, end: vc.end };
   } else {
-    // fallback si SRT versets mal aligné
     const last = verseCues[verseCues.length-1];
     const total = last ? last.end : 600;
     const chunk = total / Math.max(verses.length, 1);
     window._activeWindow = { start: curVerseIdx * chunk, end: (curVerseIdx+1) * chunk };
   }
-  // wordCues filtrés dans la fenêtre du verset pour highlight
   const ws = window._activeWindow.start, we = window._activeWindow.end;
   window._activeCues = wordCues.filter(c => c.start >= ws - 0.1 && c.end <= we + 0.1);
 }
 
-/* ══════════════════════════════════════════════
-   RETRY LISTEN — play failed verses 2 times
-   ══════════════════════════════════════════════ */
 function beginRetryListenPhase(missingVerseIdxList) {
   phase = "retry_listen";
   updateProgressTrack();
   retryMissing = missingVerseIdxList;
-
-  // DIRECT: fusionner les fenêtres des versets échoués
   let winStart = Infinity, winEnd = 0;
   missingVerseIdxList.forEach(vi => {
     const vc = verseCues[vi];
@@ -487,9 +416,7 @@ function beginRetryListenPhase(missingVerseIdxList) {
   if (winStart === Infinity) { winStart = 0; winEnd = verseCues.length ? verseCues[verseCues.length-1].end : 60; }
   window._activeWindow = { start: winStart, end: winEnd };
   window._activeCues   = wordCues.filter(c => c.start >= winStart - 0.1 && c.end <= winEnd + 0.1);
-
   repTotal = 2; repCur = 0; playing = false; stopped = false;
-
   const names = missingVerseIdxList.map(i => "الآية "+(i+1)).join(" + ");
   G("phase-label").textContent = "مراجعة: " + names + " — مرتان";
   G("ayah-full-text").textContent = missingVerseIdxList.map(i=>verses[i]).join("\n");
@@ -511,15 +438,11 @@ function beginRetryListenPhase(missingVerseIdxList) {
   G("card-listen").scrollIntoView({ behavior:"smooth", block:"start" });
 }
 
-/* ══════════════════════════════════════════════
-   EXAM PHASE — recite verses 0..examUpTo
-   ══════════════════════════════════════════════ */
 function beginExamPhase() {
   phase = "exam";
   updateProgressTrack();
   finalTx = "";
   lastFullTx = "";
-
   const from = examSolo ? curVerseIdx : 0;
   const to   = curVerseIdx;
   const range = verses.slice(from, to + 1);
@@ -532,7 +455,6 @@ function beginExamPhase() {
   G("rec-hint").textContent = examSolo
     ? "قل الآية " + (curVerseIdx + 1) + " بصوت واضح"
     : "قل الآيات من 1 إلى " + (curVerseIdx + 1) + " بصوت واضح";
-
   G("btn-rec-start").classList.remove("hidden");
   G("btn-rec-stop").classList.add("hidden");
   G("rec-status").textContent = "اضغط الزر وابدأ في التلاوة";
@@ -543,10 +465,6 @@ function beginExamPhase() {
   G("card-recite").scrollIntoView({ behavior:"smooth", block:"start" });
 }
 
-/* ══════════════════════════════════════════════
-   PLAY ONE REP — uses window._activeWindow {start,end}
-   and window._activeCues for word highlight
-   ══════════════════════════════════════════════ */
 function playOnce(onEnd) {
   const p = G("audio-player");
   if (!audioUrl) {
@@ -558,7 +476,6 @@ function playOnce(onEnd) {
   }
   const win = window._activeWindow;
   if (!win || win.end <= win.start + 0.1) { setTimeout(onEnd, 200); return; }
-
   const startTime = win.start;
   const endTime   = win.end;
   let ended = false;
@@ -576,14 +493,10 @@ function playOnce(onEnd) {
 
   function doPlay() {
     if (window._wTimer) { clearInterval(window._wTimer); window._wTimer = null; }
-    p.onended = null; // disable onended — we manage end via interval only
+    p.onended = null;
     G("current-word").textContent = "—";
-
-    // Seek then play
     p.currentTime = startTime;
-
     const activeCues = window._activeCues || [];
-    const expectedDuration = (endTime - startTime) * 1000; // ms
     let lastTime = -1;
     let stuckCount = 0;
 
@@ -591,23 +504,14 @@ function playOnce(onEnd) {
       window._wTimer = setInterval(() => {
         if (stopped) { p.pause(); safeEnd(); return; }
         const t = p.currentTime;
-        // Detect stuck / not advancing (after 1s of interval)
         if (t === lastTime) {
           stuckCount++;
-          if (stuckCount > 15) { // ~1.2s with no progress
-            p.pause();
-            safeEnd();
-            return;
-          }
+          if (stuckCount > 15) { p.pause(); safeEnd(); return; }
         } else {
           stuckCount = 0;
           lastTime = t;
         }
-        if (t >= endTime) {
-          p.pause();
-          safeEnd();
-          return;
-        }
+        if (t >= endTime) { p.pause(); safeEnd(); return; }
         const cue = activeCues.find(c => t >= c.start && t < c.end);
         if (cue) {
           G("current-word").textContent = cue.text;
@@ -639,10 +543,7 @@ function playOnce(onEnd) {
     p.onloadedmetadata = null;
     p.oncanplaythrough = null;
     p.load();
-    p.oncanplaythrough = function() {
-      p.oncanplaythrough = null;
-      doPlay();
-    };
+    p.oncanplaythrough = function() { p.oncanplaythrough = null; doPlay(); };
     p.onerror = safeEnd;
   }
 
@@ -651,15 +552,11 @@ function playOnce(onEnd) {
   } else if (p._loadedUrl !== audioUrl) {
     loadAndPlay();
   } else {
-    p.oncanplaythrough = function() {
-      p.oncanplaythrough = null;
-      doPlay();
-    };
+    p.oncanplaythrough = function() { p.oncanplaythrough = null; doPlay(); };
     p.onerror = safeEnd;
   }
 }
 
-/* ─── REP LOOP ─── */
 function startReps() {
   repCur = 0; playing = true; stopped = false;
   G("btn-listen-start").classList.add("hidden");
@@ -668,8 +565,24 @@ function startReps() {
   tick();
 }
 
-/* examSolo=true → test verse curVerseIdx alone ; examSolo=false → test 0..curVerseIdx */
 let examSolo = true;
+
+/* ─── helper: stop any active pause recognizer ─── */
+function stopPauseRecog() {
+  const SRPlug = window.Capacitor?.Plugins?.SpeechRecognition;
+  if (window._pauseCapActive && SRPlug) {
+    try { SRPlug.stop(); } catch(e) {}
+    if (window._pauseListener) {
+      try { window._pauseListener.remove(); } catch(e) {}
+      window._pauseListener = null;
+    }
+    window._pauseCapActive = false;
+  }
+  if (window._pauseRecog) {
+    try { window._pauseRecog.stop(); } catch(e) {}
+    window._pauseRecog = null;
+  }
+}
 
 function tick() {
   if (stopped) { playing = false; return; }
@@ -682,7 +595,6 @@ function tick() {
         examUpTo = curVerseIdx;
         examSolo = true;
       }
-      // Une répétition de rappel avant l'examen
       const oldRepTotal = repTotal;
       const oldRepCur = repCur;
       repTotal = 1; repCur = 0;
@@ -708,27 +620,39 @@ function tick() {
     const rate = (phase === "listen") ? G("audio-player").playbackRate : 1.0;
     const pauseDur = (segDur / rate) * 1.5;
 
-    // Activer micro pendant la pause
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    let pauseRecog = null;
-    if (SR && phase === "listen") {
-      pauseRecog = new SR();
-      pauseRecog.lang = "ar-SA";
-      pauseRecog.continuous = true;
-      pauseRecog.interimResults = true;
-      pauseRecog.onresult = e => {
-        let txt = "";
-        for (let i = e.resultIndex; i < e.results.length; i++) txt += e.results[i][0].transcript;
-        G("current-word").textContent = txt.trim().split(/\s+/).slice(-1)[0] || "—";
-      };
-      pauseRecog.onstart = () => {
-        G("current-word").textContent = "—";
-      };
-      pauseRecog.start();
+    /* ── Activer micro pendant la pause ──
+       Sur Android (Capacitor) : utilise le plugin natif
+       Sur PC (Chrome)         : utilise l'API navigateur                */
+    const SRPlug = window.Capacitor?.Plugins?.SpeechRecognition;
+    const SRBrowser = window.SpeechRecognition || window.webkitSpeechRecognition;
+    window._pauseCapActive = false;
+    window._pauseRecog = null;
+
+    if (phase === "listen") {
+      if (SRPlug) {
+        window._pauseCapActive = true;
+        SRPlug.addListener("partialResults", data => {
+          const txt = (data.matches && data.matches[0]) ? data.matches[0] : "";
+          if (txt) G("current-word").textContent = txt.trim().split(/\s+/).slice(-1)[0] || "—";
+        }).then(h => { window._pauseListener = h; }).catch(() => {});
+        SRPlug.start({ language: "ar-SA", partialResults: true, popup: false }).catch(() => {});
+      } else if (SRBrowser) {
+        const pr = new SRBrowser();
+        pr.lang = "ar-SA";
+        pr.continuous = true;
+        pr.interimResults = true;
+        pr.onresult = e => {
+          let txt = "";
+          for (let i = e.resultIndex; i < e.results.length; i++) txt += e.results[i][0].transcript;
+          G("current-word").textContent = txt.trim().split(/\s+/).slice(-1)[0] || "—";
+        };
+        window._pauseRecog = pr;
+        try { pr.start(); } catch(e) {}
+      }
     }
 
     setTimeout(() => {
-      if (pauseRecog) { try { pauseRecog.stop(); } catch(e){} }
+      stopPauseRecog();
       G("current-word").textContent = "—";
       tick();
     }, pauseDur);
@@ -743,6 +667,7 @@ G("btn-listen-start").addEventListener("click", () => {
 });
 G("btn-listen-stop").addEventListener("click", () => {
   stopped = true;
+  stopPauseRecog();
   const p = G("audio-player");
   p.pause();
   p.onended = null;
@@ -756,23 +681,43 @@ G("btn-listen-stop").addEventListener("click", () => {
 });
 
 /* ══════════════════════════════════════════════
-   SPEECH RECOGNITION
+   SPEECH RECOGNITION — EXAM PHASE
    ══════════════════════════════════════════════ */
 async function startRecog() {
   const SRPlugin = window.Capacitor?.Plugins?.SpeechRecognition;
-  alert("Capacitor: " + (window.Capacitor ? "OUI" : "NON") + " | Plugin: " + (SRPlugin ? "OUI" : "NON"));
-  
+
   if (SRPlugin) {
-    // Mode APK natif
-    const { available } = await SRPlugin.available();
-    if (!available) { alert("التعرف الصوتي غير متاح على هذا الجهاز"); return; }
-    await SRPlugin.requestPermission();
+    /* ── Mode APK Android natif ── */
+    try {
+      const res = await SRPlugin.available();
+      if (!res.available) {
+        G("rec-status").textContent = "التعرف الصوتي غير متاح على هذا الجهاز";
+        G("btn-rec-stop").classList.add("hidden");
+        G("btn-rec-start").classList.remove("hidden");
+        return;
+      }
+    } catch(e) {
+      G("rec-status").textContent = "خطأ في التحقق من التوفر: " + e.message;
+      G("btn-rec-stop").classList.add("hidden");
+      G("btn-rec-start").classList.remove("hidden");
+      return;
+    }
+
+    try { await SRPlugin.requestPermission(); } catch(e) {}
+
+    finalTx = "";
+    lastFullTx = "";
     G("mic-ring").classList.add("on");
     G("rec-status").textContent = "جارٍ الاستماع... تكلّم الآن!";
     G("transcript").style.display = "block";
     G("transcript").textContent = "...";
     G("current-word").textContent = "—";
-    window._srListener = await SRPlugin.addListener("partialResults", data => {
+
+    /* إلغاء أي مستمع سابق */
+    if (window._srListener) { try { window._srListener.remove(); } catch(e){} window._srListener = null; }
+    if (window._srListenerFinal) { try { window._srListenerFinal.remove(); } catch(e){} window._srListenerFinal = null; }
+
+    SRPlugin.addListener("partialResults", data => {
       const txt = (data.matches && data.matches[0]) ? data.matches[0] : "";
       if (txt.length >= lastFullTx.length) {
         lastFullTx = txt;
@@ -781,29 +726,37 @@ async function startRecog() {
       G("transcript").textContent = lastFullTx || "...";
       G("transcript").style.display = "block";
       G("current-word").textContent = lastFullTx.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || "—";
-    });
-    window._srListenerFinal = await SRPlugin.addListener("listeningState", data => {
-      if (data.status === "stopped" && lastFullTx) {
-        finalTx = lastFullTx;
-      }
-    });
+    }).then(h => { window._srListener = h; }).catch(() => {});
+
+    SRPlugin.addListener("listeningState", data => {
+      if (data.status === "stopped" && lastFullTx) finalTx = lastFullTx;
+    }).then(h => { window._srListenerFinal = h; }).catch(() => {});
+
     try {
-      await SRPlugin.start({
-        language: "ar-SA",
-        partialResults: true,
-        popup: false,
-        maxDuration: 60
-      });
+      await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false });
     } catch(e) {
-      alert("خطأ في بدء التعرف: " + e.message);
+      G("rec-status").textContent = "خطأ في بدء التعرف: " + (e.message || e);
+      G("mic-ring").classList.remove("on");
+      G("btn-rec-stop").classList.add("hidden");
+      G("btn-rec-start").classList.remove("hidden");
     }
 
   } else {
-    // Mode navigateur Chrome
+    /* ── Mode navigateur Chrome/Edge ── */
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { alert("التعرف الصوتي غير مدعوم.\nاستخدم Chrome أو Edge."); return; }
+    if (!SR) {
+      G("rec-status").textContent = "التعرف الصوتي غير مدعوم. استخدم Chrome أو Edge.";
+      G("btn-rec-stop").classList.add("hidden");
+      G("btn-rec-start").classList.remove("hidden");
+      return;
+    }
+    finalTx = "";
+    lastFullTx = "";
     recog = new SR();
-    recog.lang = "ar-SA"; recog.continuous = true; recog.interimResults = true; recog.maxAlternatives = 3;
+    recog.lang = "ar-SA";
+    recog.continuous = true;
+    recog.interimResults = true;
+    recog.maxAlternatives = 3;
     recog.onstart = () => {
       G("mic-ring").classList.add("on");
       G("rec-status").textContent = "جارٍ الاستماع... تكلّم الآن!";
@@ -821,26 +774,33 @@ async function startRecog() {
       G("transcript").textContent = lastFullTx || "...";
       G("current-word").textContent = lastFullTx.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || "—";
     };
-    recog.onerror = e => { G("mic-ring").classList.remove("on"); G("rec-status").textContent = e.error === "no-speech" ? "لم يُكتشف صوت، حاول مجدداً" : "خطأ: " + e.error; };
+    recog.onerror = e => {
+      G("mic-ring").classList.remove("on");
+      G("rec-status").textContent = e.error === "no-speech" ? "لم يُكتشف صوت، حاول مجدداً" : "خطأ: " + e.error;
+    };
     recog.onend = () => G("mic-ring").classList.remove("on");
-    recog.start();
+    try { recog.start(); } catch(e) {
+      G("rec-status").textContent = "خطأ: " + e.message;
+    }
   }
 }
+
 G("btn-rec-start").addEventListener("click", () => {
   G("btn-rec-start").classList.add("hidden");
   G("btn-rec-stop").classList.remove("hidden");
   startRecog();
 });
 
-G("btn-rec-stop").addEventListener("click", async () => {
+G("btn-rec-stop").addEventListener("click", () => {
+  /* ── Arrêt immédiat — PAS de await pour éviter le blocage ── */
   const SRPlugin = window.Capacitor?.Plugins?.SpeechRecognition;
   if (SRPlugin) {
-    try { await SRPlugin.stop(); } catch(e) {}
+    try { SRPlugin.stop(); } catch(e) {}
     if (window._srListener) { try { window._srListener.remove(); } catch(e){} window._srListener = null; }
     if (window._srListenerFinal) { try { window._srListenerFinal.remove(); } catch(e){} window._srListenerFinal = null; }
     G("mic-ring").classList.remove("on");
   } else {
-    if (recog) { try { recog.stop(); } catch(e) {} }
+    if (recog) { try { recog.stop(); } catch(e) {} recog = null; }
   }
   G("btn-rec-stop").classList.add("hidden");
   G("btn-rec-start").classList.add("hidden");
@@ -849,19 +809,13 @@ G("btn-rec-stop").addEventListener("click", async () => {
   setTimeout(() => evaluate(), 1500);
 });
 
-/* ══════════════════════════════════════════════
-   EVALUATE — checks verses 0..examUpTo
-   Identifies which specific verses failed
-   ══════════════════════════════════════════════ */
 function evaluate() {
   const heard = norm(finalTx);
   const grid = G("word-grid"); grid.innerHTML = "";
-
   const from = examSolo ? curVerseIdx : 0;
   const to   = curVerseIdx;
   const allWords = [];
   const verseResults = [];
-
   for (let vi = from; vi <= to; vi++) {
     const words = verses[vi].split(/\s+/).filter(Boolean);
     let versePassed = true;
@@ -872,23 +826,19 @@ function evaluate() {
     });
     verseResults.push({ vi, passed: versePassed });
   }
-
   allWords.forEach(({ w, ok }) => {
     const pill = document.createElement("span");
     pill.className = "word-pill " + (ok ? "wok" : "wmiss");
     pill.textContent = (ok ? "✓ " : "✗ ") + w;
     grid.appendChild(pill);
   });
-
   const found  = allWords.filter(x=>x.ok).length;
   const total  = allWords.length;
   const score  = Math.round((found / total) * 100);
   const failedVerses = verseResults.filter(r=>!r.passed).map(r=>r.vi);
-
   const box = G("score-box"); box.className = "score-box";
   const nm  = G("n-missing"), nx = G("n-extra");
   nm.classList.add("hidden"); nx.classList.add("hidden");
-
   if (score === 100) {
     box.classList.add("ex");
     G("score-num").textContent = "100%";
@@ -921,9 +871,7 @@ function evaluate() {
   }
 }
 
-/* ─── ADVANCE AFTER PASS ─── */
 function playGroupOnce(then) {
-  // Joue tous les versets 0..curVerseIdx en séquence une fois
   const indices = [];
   for (let i = 0; i <= curVerseIdx; i++) indices.push(i);
   function playNext() {
@@ -948,7 +896,6 @@ function advanceAfterPass() {
       examSolo = true;
       beginListenPhase();
     } else {
-      // Joue la partie longue une fois avant l'examen groupe
       playGroupOnce(() => {
         examSolo = false;
         beginExamPhase();
@@ -974,10 +921,10 @@ function showDone() {
   G("card-result").scrollIntoView({ behavior:"smooth", block:"start" });
 }
 
-/* ─── RESTART ─── */
 G("btn-restart").addEventListener("click", () => {
   curVerseIdx=0; examUpTo=0; phase="idle"; repCur=0; repTotal=10;
   playing=false; stopped=false; finalTx=""; lastFullTx="";
+  stopPauseRecog();
   if (window._wTimer) clearInterval(window._wTimer);
   G("card-listen").classList.add("hidden");
   G("card-recite").classList.add("hidden");
@@ -987,7 +934,6 @@ G("btn-restart").addEventListener("click", () => {
   window.scrollTo({ top:0, behavior:"smooth" });
 });
 
-/* ─── INIT ─── */
 /* ─── INIT ─── */
 navigator.mediaDevices.getUserMedia({ audio: true })
   .then(stream => { stream.getTracks().forEach(t => t.stop()); startSession(); })
