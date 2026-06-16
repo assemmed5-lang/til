@@ -760,33 +760,35 @@ G("btn-listen-stop").addEventListener("click", () => {
    ══════════════════════════════════════════════ */
 async function startRecog() {
   const SRPlugin = window.Capacitor?.Plugins?.SpeechRecognition;
-  alert("Capacitor: " + (window.Capacitor ? "OUI" : "NON") + " | Plugin: " + (SRPlugin ? "OUI" : "NON"));
-  
   if (SRPlugin) {
     // Mode APK natif
-    const { available } = await SRPlugin.available();
-    if (!available) { alert("التعرف الصوتي غير متاح على هذا الجهاز"); return; }
-    await SRPlugin.requestPermission();
-    G("mic-ring").classList.add("on");
-    G("rec-status").textContent = "جارٍ الاستماع... تكلّم الآن!";
-    G("transcript").style.display = "block";
-    G("transcript").textContent = "...";
-    G("current-word").textContent = "—";
-    window._srListener = await SRPlugin.addListener("partialResults", data => {
-      const txt = (data.matches && data.matches[0]) ? data.matches[0] : "";
-      if (txt.length >= lastFullTx.length) {
-        lastFullTx = txt;
-        finalTx = txt;
-      }
-      G("transcript").textContent = lastFullTx || "...";
-      G("transcript").style.display = "block";
-      G("current-word").textContent = lastFullTx.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || "—";
-    });
     try {
-      await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false });
+        const { available } = await SRPlugin.available();
+        if (!available) { alert("التعرف الصوتي غير متاح"); return; }
+        
+        await SRPlugin.requestPermission();
+        G("mic-ring").classList.add("on");
+        
+        // Modification ici : on simplifie l'écoute
+        await SRPlugin.start({ 
+            language: "ar-SA", 
+            partialResults: true, 
+            popup: false 
+        });
+
+        // Utiliser addListener au lieu de le stocker dans une variable globale complexe
+        SRPlugin.addListener("partialResults", (data) => {
+            // Sur Android, vérifiez si data.matches existe ou si c'est data.speechRecognition
+            const txt = (data.matches && data.matches[0]) ? data.matches[0] : (data.speechRecognition || "");
+            if (txt) {
+                lastFullTx = txt;
+                G("transcript").textContent = lastFullTx;
+            }
+        });
     } catch(e) {
-      alert("خطأ في بدء التعرف: " + e.message);
+        alert("خطأ في بدء التعرف: " + e.message);
     }
+  }
 
   } else {
     // Mode navigateur Chrome
