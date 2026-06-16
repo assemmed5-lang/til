@@ -25,8 +25,8 @@ jobs:
           npx cap sync android
 
           MANIFEST=$(find android/app -name "AndroidManifest.xml" | head -1)
-          sed -i 's|</manifest>|    <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n</manifest>|' "$MANIFEST"
-
+          sed -i 's|<application|<uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <application|' "$MANIFEST"
+          
           python3 -c "open('android/app/src/main/java/com/tilawa/sourate/MainActivity.java','w').write('package com.tilawa.sourate;\nimport com.getcapacitor.BridgeActivity;\nimport android.os.Bundle;\nimport com.getcapacitor.community.speechrecognition.SpeechRecognition;\npublic class MainActivity extends BridgeActivity {\n    @Override\n    public void onCreate(Bundle savedInstanceState) {\n        registerPlugin(SpeechRecognition.class);\n        super.onCreate(savedInstanceState);\n    }\n}\n')"
 
           cd android
