@@ -1,10 +1,9 @@
 {
-  "name": "tilawa",
-  "version": "1.0.0",
-  "dependencies": {
-    "@capacitor/core": "latest",
-    "@capacitor/cli": "latest",
-    "@capacitor/android": "latest",
-    "@capacitor-community/speech-recognition": "latest"
+  "appId": "com.tilawa.sourate",
+  "appName": "Tilawa",
+  "webDir": "www",
+  "androidScheme": "https",
+  "android": {
+    "allowMixedContent": true
   }
 }
