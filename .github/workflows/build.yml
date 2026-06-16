@@ -15,16 +15,14 @@ jobs:
           cp index.html www/
           cp *.mp3 www/ 2>/dev/null || true
           npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor-community/speech-recognition
-          npx cap init Tilawa com.tilawa.sourate --web-dir www
+
           npx cap add android
 
           MANIFEST=$(find android/app -name "AndroidManifest.xml" | head -1)
           sed -i 's|</manifest>|    <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n</manifest>|' "$MANIFEST"
 
-          # 1. Création du fichier MainActivity.java propre
           python3 -c "open('android/app/src/main/java/com/tilawa/sourate/MainActivity.java','w').write('package com.tilawa.sourate;\nimport com.getcapacitor.BridgeActivity;\nimport android.os.Bundle;\nimport com.getcapacitor.community.speechrecognition.SpeechRecognition;\npublic class MainActivity extends BridgeActivity {\n    @Override\n    public void onCreate(Bundle savedInstanceState) {\n        registerPlugin(SpeechRecognition.class);\n        super.onCreate(savedInstanceState);\n    }\n}\n')"
 
-          # 2. Forcer la version Java dans Gradle
           sed -i 's/sourceCompatibility JavaVersion.VERSION_17/sourceCompatibility JavaVersion.VERSION_21/g' android/app/build.gradle
           sed -i 's/targetCompatibility JavaVersion.VERSION_17/targetCompatibility JavaVersion.VERSION_21/g' android/app/build.gradle
 
