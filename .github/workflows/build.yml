@@ -19,17 +19,19 @@ jobs:
           npx cap add android
           
           # 1. Création du fichier MainActivity.java propre
-          echo 'package com.tilawa.sourate;
+          cat > android/app/src/main/java/com/tilawa/sourate/MainActivity.java << 'EOF'
+          package com.tilawa.sourate;
           import com.getcapacitor.BridgeActivity;
           import android.os.Bundle;
           import com.getcapacitor.community.speechrecognition.SpeechRecognition;
           public class MainActivity extends BridgeActivity {
               @Override
               public void onCreate(Bundle savedInstanceState) {
-                  super.onCreate(savedInstanceState);
                   registerPlugin(SpeechRecognition.class);
+                  super.onCreate(savedInstanceState);
               }
-          }' > android/app/src/main/java/com/tilawa/sourate/MainActivity.java
+          }
+          EOF
           
           # 2. Forcer la version Java dans Gradle pour éviter l'erreur de source release
           sed -i 's/sourceCompatibility JavaVersion.VERSION_17/sourceCompatibility JavaVersion.VERSION_21/g' android/app/build.gradle
