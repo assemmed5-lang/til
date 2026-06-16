@@ -760,7 +760,8 @@ G("btn-listen-stop").addEventListener("click", () => {
    ══════════════════════════════════════════════ */
 async function startRecog() {
   const SRPlugin = window.Capacitor?.Plugins?.SpeechRecognition;
-
+  alert("Capacitor: " + (window.Capacitor ? "OUI" : "NON") + " | Plugin: " + (SRPlugin ? "OUI" : "NON"));
+  
   if (SRPlugin) {
     // Mode APK natif
     const { available } = await SRPlugin.available();
