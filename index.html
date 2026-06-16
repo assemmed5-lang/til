@@ -679,62 +679,12 @@ G("btn-listen-stop").addEventListener("click", () => {
    Capacitor grâce à androidScheme:'https' (origine sécurisée).
    Le plugin natif Capacitor n'est utilisé qu'en dernier recours.
    ══════════════════════════════════════════════ */
-let _silenceNode = null;
-
-function startSilenceFiller() {
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.frequency.value = 100;
-    gain.gain.value = 0.001;
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start();
-    _silenceNode = { osc, ctx };
-  } catch(e) {}
-}
-
-function stopSilenceFiller() {
-  if (_silenceNode) {
-    try { _silenceNode.osc.stop(); _silenceNode.ctx.close(); } catch(e) {}
-    _silenceNode = null;
-  }
-}
 async function startRecog() {
   finalTx = ""; lastFullTx = "";
 
-  const SRPlugin = window.Capacitor?.Plugins?.SpeechRecognition;
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
   if (SR) {
-    recog = new SR();
-    recog.lang = "ar-SA";
-    recog.continuous = true;
-    recog.interimResults = true;
-    recog.maxAlternatives = 3;
-
-    recog.onstart = () => {
-      G("mic-ring").classList.add("on");
-      G("rec-status").textContent = "جارٍ الاستماع... تكلّم الآن!";
-      const t = G("transcript"); t.style.display = "block"; t.textContent = "...";
-      G("current-word").textContent = "—";
-    };
-    recog.onresult = e => {
-      let interim = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) finalTx += e.results[i][0].transcript + " ";
-        else interim += e.results[i][0].transcript;
-      }
-      const candidate = (finalTx + interim).trim();
-      if (candidate.length >= lastFullTx.length) lastFullTx = candidate;
-      G("transcript").textContent = lastFullTx || "...";
-      G("current-word").textContent = lastFullTx.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || "—";
-    };
-    recog.onerror = e => {
-      if (e.error !== "aborted") G("rec-status").textContent = "خطأ: " + e.error;
-    };
-
     function restartRecog() {
       G("mic-ring").classList.remove("on");
       if (!finalTx.trim() && lastFullTx) finalTx = lastFullTx;
@@ -762,14 +712,36 @@ async function startRecog() {
             if (e.error !== "aborted") G("rec-status").textContent = "خطأ: " + e.error;
           };
           recog.onend = restartRecog;
-          startSilenceFiller();
-          window._recogActive = true;
-          recog.start();
           recog.start();
         } catch(e) {}
       }, 100);
     }
 
+    recog = new SR();
+    recog.lang = "ar-SA";
+    recog.continuous = true;
+    recog.interimResults = true;
+    recog.maxAlternatives = 3;
+    recog.onstart = () => {
+      G("mic-ring").classList.add("on");
+      G("rec-status").textContent = "جارٍ الاستماع... تكلّم الآن!";
+      const t = G("transcript"); t.style.display = "block"; t.textContent = "...";
+      G("current-word").textContent = "—";
+    };
+    recog.onresult = e => {
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) finalTx += e.results[i][0].transcript + " ";
+        else interim += e.results[i][0].transcript;
+      }
+      const candidate = (finalTx + interim).trim();
+      if (candidate.length >= lastFullTx.length) lastFullTx = candidate;
+      G("transcript").textContent = lastFullTx || "...";
+      G("current-word").textContent = lastFullTx.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || "—";
+    };
+    recog.onerror = e => {
+      if (e.error !== "aborted") G("rec-status").textContent = "خطأ: " + e.error;
+    };
     recog.onend = restartRecog;
 
     try {
@@ -824,8 +796,6 @@ G("btn-rec-start").addEventListener("click", () => {
 });
 
 G("btn-rec-stop").addEventListener("click", () => {
-  stopSilenceFiller();
-  window._recogActive = false; 
   window._recogActive = false;
   if (recog) { try { recog.stop(); } catch(e) {} recog = null; }
   const SRPlugin = window.Capacitor?.Plugins?.SpeechRecognition;
@@ -840,7 +810,6 @@ G("btn-rec-stop").addEventListener("click", () => {
   if (!finalTx.trim() && lastFullTx) finalTx = lastFullTx;
   setTimeout(() => evaluate(), 1500);
 });
-
 function evaluate() {
   const heard = norm(finalTx);
   const grid = G("word-grid"); grid.innerHTML = "";
