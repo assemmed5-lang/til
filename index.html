@@ -772,14 +772,21 @@ async function startRecog() {
     G("transcript").style.display = "block";
     G("transcript").textContent = "...";
     G("current-word").textContent = "—";
-    window._srListener = SRPlugin.addListener("partialResults", data => {
+    window._srListener = await SRPlugin.addListener("partialResults", data => {
       const txt = (data.matches && data.matches[0]) ? data.matches[0] : "";
-      if (txt.length >= lastFullTx.length) lastFullTx = txt;
-      finalTx = lastFullTx;
+      if (txt.length >= lastFullTx.length) {
+        lastFullTx = txt;
+        finalTx = txt;
+      }
       G("transcript").textContent = lastFullTx || "...";
+      G("transcript").style.display = "block";
       G("current-word").textContent = lastFullTx.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || "—";
     });
-    await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false });
+    try {
+      await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false });
+    } catch(e) {
+      alert("خطأ في بدء التعرف: " + e.message);
+    }
 
   } else {
     // Mode navigateur Chrome
@@ -818,18 +825,17 @@ G("btn-rec-start").addEventListener("click", () => {
 G("btn-rec-stop").addEventListener("click", async () => {
   const SRPlugin = window.Capacitor?.Plugins?.SpeechRecognition;
   if (SRPlugin) {
-    await SRPlugin.stop();
-    if (window._srListener) { window._srListener.remove(); window._srListener = null; }
+    try { await SRPlugin.stop(); } catch(e) {}
+    if (window._srListener) { try { window._srListener.remove(); } catch(e){} window._srListener = null; }
     G("mic-ring").classList.remove("on");
   } else {
-    if (recog) recog.stop();
+    if (recog) { try { recog.stop(); } catch(e) {} }
   }
   G("btn-rec-stop").classList.add("hidden");
+  G("btn-rec-start").classList.add("hidden");
   G("rec-status").textContent = "جارٍ التحليل...";
-  setTimeout(() => {
-    if (!finalTx.trim() && lastFullTx) finalTx = lastFullTx;
-    evaluate();
-  }, 900);
+  if (!finalTx.trim() && lastFullTx) finalTx = lastFullTx;
+  setTimeout(() => evaluate(), 1500);
 });
 
 /* ══════════════════════════════════════════════
