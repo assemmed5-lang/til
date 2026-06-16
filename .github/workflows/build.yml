@@ -8,10 +8,8 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-      - name: Build Everything
+        with: { java-version: '17', distribution: 'temurin' }
+      - name: Build
         run: |
           mkdir -p www
           cp index.html www/
@@ -19,16 +17,10 @@ jobs:
           npx cap init Tilawa com.tilawa.sourate --web-dir www
           npx cap add android
           npm install @capacitor-community/speech-recognition
-          # On s'assure que le projet utilise Java 17
-          find android -name "build.gradle" -exec sed -i 's/JavaVersion.VERSION_21/JavaVersion.VERSION_17/g' {} +
-          # On modifie le code java
-          echo "import com.getcapacitor.community.speechrecognition.SpeechRecognition;" > temp_import.txt
-          sed -i '/import com.getcapacitor.BridgeActivity;/r temp_import.txt' android/app/src/main/java/com/tilawa/sourate/MainActivity.java
-          sed -i 's/public class MainActivity extends BridgeActivity {/public class MainActivity extends BridgeActivity {\n  @Override\n  public void onCreate(android.os.Bundle savedInstanceState) {\n    super.onCreate(savedInstanceState);\n    registerPlugin(SpeechRecognition.class);\n  }/' android/app/src/main/java/com/tilawa/sourate/MainActivity.java
-          # On compile
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug
       - uses: actions/upload-artifact@v4
         with:
+          name: mon-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
