@@ -9,7 +9,7 @@ jobs:
         with: { node-version: 22 }
       - uses: actions/setup-java@v4
         with: { java-version: '21', distribution: 'temurin' }
-      - name: Setup and Build
+      - name: Build and Permissions
         run: |
           mkdir -p www
           cp index.html www/
@@ -17,7 +17,10 @@ jobs:
           npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor-community/speech-recognition
           npx cap init Tilawa com.tilawa.sourate --web-dir www
           npx cap add android
-          # Juste l'ajout du plugin sans toucher au reste
+          
+          # Ajout de la permission micro dans le Manifest Android
+          sed -i '/<uses-permission android:name="android.permission.INTERNET" \/>/a \    <uses-permission android:name="android.permission.RECORD_AUDIO" />' android/app/src/main/AndroidManifest.xml
+          
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug
