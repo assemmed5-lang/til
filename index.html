@@ -120,7 +120,9 @@ function parseSRT(txt) {
 function norm(s) {
   return s
     .replace(/[\u064B-\u065F\u0670\u0671]/g,"")
-    .replace(/[أإآا]/g,"ا").replace(/[ىي]/g,"ي").replace(/ة/g,"ه")
+    .replace(/[أإآٱا]/g,"ا").replace(/[ىي]/g,"ي").replace(/ة/g,"ه")
+    .replace(/ـ/g,"")
+    .replace(/(.)\1{2,}/g,"$1$1")
     .replace(/\s+/g," ").trim().toLowerCase();
 }
 
@@ -331,11 +333,31 @@ function renderBank() {}
 function delFromBank(i) {}
 function loadFromBank(i) {}
 
+function saveState() {
+  try {
+    localStorage.setItem("tilawa_state", JSON.stringify({
+      curVerseIdx, phase, repCur, repTotal,
+      examSolo: examSolo || false,
+      examUpTo
+    }));
+  } catch(e) {}
+}
+
+function loadState() {
+  try {
+    const s = JSON.parse(localStorage.getItem("tilawa_state"));
+    if (!s || s.phase === "idle") return false;
+    curVerseIdx = s.curVerseIdx || 0;
+    phase       = s.phase || "idle";
+    repCur      = s.repCur || 0;
+    repTotal    = s.repTotal || 10;
+    examSolo    = s.examSolo || false;
+    examUpTo    = s.examUpTo || 0;
+    return true;
+  } catch(e) { return false; }
+}
+
 function startSession() {
-  curVerseIdx = 0;
-  examUpTo    = 0;
-  phase       = "idle";
-  retryMissing= [];
   const p = document.querySelector("audio");
   if (!p) { alert("audio element missing"); return; }
   if (!p.src || !p.src.endsWith(audioUrl)) { p.src = audioUrl; p._loadedUrl = audioUrl; p.load(); }
@@ -343,7 +365,14 @@ function startSession() {
   G("card-recite").classList.add("hidden");
   G("card-result").classList.add("hidden");
   buildProgressTrack();
-  beginListenPhase();
+  if (loadState()) {
+    if (phase === "listen" || phase === "retry_listen") beginListenPhase();
+    else if (phase === "exam") beginExamPhase();
+    else { curVerseIdx=0; examUpTo=0; phase="idle"; retryMissing=[]; repCur=0; repTotal=10; beginListenPhase(); }
+  } else {
+    curVerseIdx=0; examUpTo=0; phase="idle"; retryMissing=[]; repCur=0; repTotal=10;
+    beginListenPhase();
+  }
 }
 
 function buildProgressTrack() {
@@ -367,6 +396,7 @@ function updateProgressTrack() {
 
 function beginListenPhase() {
   phase = "listen";
+  saveState();
   updateProgressTrack();
   const reps = 10 + Math.max(0, curVerseIdx - 1);
   repTotal = reps; repCur = 0;
@@ -406,6 +436,7 @@ function beginListenPhase() {
 
 function beginRetryListenPhase(missingVerseIdxList) {
   phase = "retry_listen";
+  saveState();
   updateProgressTrack();
   retryMissing = missingVerseIdxList;
   let winStart = Infinity, winEnd = 0;
@@ -440,6 +471,7 @@ function beginRetryListenPhase(missingVerseIdxList) {
 
 function beginExamPhase() {
   phase = "exam";
+  saveState();
   updateProgressTrack();
   finalTx = "";
   lastFullTx = "";
@@ -634,28 +666,55 @@ function tick() {
       pr.lang = "ar-SA";
       pr.continuous = true;
       pr.interimResults = true;
+      const expectedWords = verses[curVerseIdx] ? verses[curVerseIdx].split(/\s+/).filter(Boolean).map(norm) : [];
+      let _pauseHeard = "";
+      let _silenceTimer = null;
+      const _pauseStart = Date.now();
       pr.onresult = e => {
-        let final = "";
-        let interim = "";
+        let final = "", interim = "";
         for (let i = e.resultIndex; i < e.results.length; i++) {
           if (e.results[i].isFinal) final += e.results[i][0].transcript;
           else interim += e.results[i][0].transcript;
         }
         const txt = (final + interim).trim();
+        if (txt) _pauseHeard = txt;
         const mot = txt.split(/\s+/).filter(Boolean).slice(-1)[0];
-        if (mot) {
-          G("current-word").textContent = mot;
-          G("transcript").textContent = txt;
-          G("transcript").style.display = "block";
+        if (mot) { G("current-word").textContent = mot; G("transcript").textContent = txt; G("transcript").style.display = "block"; }
+        if (_silenceTimer) { clearTimeout(_silenceTimer); _silenceTimer = null; }
+      };
+      pr.onend = () => {
+        if (!window._pauseRecog) return;
+        const elapsed = Date.now() - _pauseStart;
+        if (_pauseHeard.trim() === "" && elapsed < pauseDur * 0.5) {
+          if (window._pauseSilencePending) return;
+          window._pauseSilencePending = true;
+          if (window._pauseTimeout) { clearTimeout(window._pauseTimeout); window._pauseTimeout = null; }
+          window._pauseRecog = null;
+          G("current-word").textContent = "⏸";
+          G("current-word").style.color = "#aaa";
+          G("btn-listen-start").disabled = false;
+          G("btn-listen-start").textContent = "▶ استمر";
+          stopped = true;
+          return;
         }
+        const heardNorm = norm(_pauseHeard);
+        const matched = expectedWords.filter(w => heardNorm.includes(w) || heardNorm.split(/\s+/).some(hw => hw === w || (w.length > 4 && (hw.startsWith(w.slice(0,4)) || w.startsWith(hw.slice(0,4)))))).length;
+        const ratio = expectedWords.length ? matched / expectedWords.length : 0;
+        if (ratio >= 0.7) G("current-word").style.color = "#1D9E75";
+        else if (ratio >= 0.3) G("current-word").style.color = "#BA7517";
+        else G("current-word").style.color = "#E24B4A";
       };
       window._pauseRecog = pr;
+      window._pauseSilencePending = false;
       try { pr.start(); } catch(e) {}
     }
 
-    setTimeout(() => {
+    window._pauseTimeout = setTimeout(() => {
+      window._pauseTimeout = null;
       if (window._pauseRecog) { try { window._pauseRecog.stop(); } catch(e){} window._pauseRecog = null; }
       G("current-word").textContent = "—";
+      G("current-word").style.color = "";
+      window._pauseSilencePending = false;
       tick();
     }, pauseDur);
   });
@@ -831,7 +890,12 @@ function evaluate() {
     const words = verses[vi].split(/\s+/).filter(Boolean);
     let versePassed = true;
     words.forEach(w => {
-      const ok = heard.includes(norm(w));
+      const nw = norm(w);
+      const heardWords = heard.split(/\s+/);
+      const ok = heard.includes(nw) || heardWords.some(hw =>
+        hw === nw ||
+        (nw.length > 4 && (hw.startsWith(nw.slice(0,4)) || nw.startsWith(hw.slice(0,4))))
+      );
       if (!ok) versePassed = false;
       allWords.push({ w, ok, vi });
     });
@@ -922,6 +986,7 @@ function advanceAfterPass() {
 }
 
 function showDone() {
+  localStorage.removeItem("tilawa_state");
   G("card-result").classList.remove("hidden");
   const box = G("score-box"); box.className = "score-box ex";
   G("score-num").textContent = "🎉";
@@ -933,6 +998,7 @@ function showDone() {
 }
 
 G("btn-restart").addEventListener("click", () => {
+  localStorage.removeItem("tilawa_state");
   curVerseIdx=0; examUpTo=0; phase="idle"; repCur=0; repTotal=10;
   playing=false; stopped=false; finalTx=""; lastFullTx="";
   stopPauseRecog();
