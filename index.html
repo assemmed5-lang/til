@@ -637,7 +637,12 @@ function tick() {
       pr.onresult = e => {
         let txt = "";
         for (let i = e.resultIndex; i < e.results.length; i++) txt += e.results[i][0].transcript;
-        G("current-word").textContent = txt.trim().split(/\s+/).slice(-1)[0] || "—";
+        const mot = txt.trim().split(/\s+/).filter(Boolean).slice(-1)[0];
+        if (mot) {
+          G("current-word").textContent = mot;
+          G("transcript").textContent = txt.trim();
+          G("transcript").style.display = "block";
+        }
       };
       window._pauseRecog = pr;
       try { pr.start(); } catch(e) {}
