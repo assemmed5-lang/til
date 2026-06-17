@@ -652,69 +652,70 @@ function tick() {
     const rate = (phase === "listen") ? G("audio-player").playbackRate : 1.0;
     const pauseDur = (segDur / rate) * 1.5;
 
-    /* ── Activer micro pendant la pause ──
-       Sur Android (Capacitor) : PAS de micro pendant la pause —
-         l'audio et le micro ne peuvent pas coexister dans la WebView Android,
-         le play() suivant échouerait silencieusement et l'app se figerait.
-       Sur PC (Chrome) : utilise l'API navigateur normalement.             */
-    const SRPlug = window.Capacitor?.Plugins?.SpeechRecognition;
     const SRBrowser = window.SpeechRecognition || window.webkitSpeechRecognition;
     window._pauseRecog = null;
+    window._pauseSilencePending = false;
 
-    if (phase === "listen" && SRBrowser) {
-      const pr = new SRBrowser();
-      pr.lang = "ar-SA";
-      pr.continuous = true;
-      pr.interimResults = true;
-      const expectedWords = verses[curVerseIdx] ? verses[curVerseIdx].split(/\s+/).filter(Boolean).map(norm) : [];
-      let _pauseHeard = "";
-      let _silenceTimer = null;
+    if ((phase === "listen" || phase === "retry_listen") && SRBrowser) {
+      const expVi = phase === "retry_listen" ? (retryMissing[0] ?? curVerseIdx) : curVerseIdx;
+      const expW = verses[expVi] ? verses[expVi].split(/\s+/).filter(Boolean).map(norm) : [];
+      let heard = ""; let gotSpeech = false;
       const _pauseStart = Date.now();
-      pr.onresult = e => {
-        let final = "", interim = "";
-        for (let i = e.resultIndex; i < e.results.length; i++) {
-          if (e.results[i].isFinal) final += e.results[i][0].transcript;
-          else interim += e.results[i][0].transcript;
-        }
-        const txt = (final + interim).trim();
-        if (txt) _pauseHeard = txt;
-        const mot = txt.split(/\s+/).filter(Boolean).slice(-1)[0];
-        if (mot) { G("current-word").textContent = mot; G("transcript").textContent = txt; G("transcript").style.display = "block"; }
-        if (_silenceTimer) { clearTimeout(_silenceTimer); _silenceTimer = null; }
-      };
-      pr.onend = () => {
-        if (!window._pauseRecog) return;
-        const elapsed = Date.now() - _pauseStart;
-        if (_pauseHeard.trim() === "" && elapsed < pauseDur * 0.5) {
-          if (window._pauseSilencePending) return;
-          window._pauseSilencePending = true;
-          if (window._pauseTimeout) { clearTimeout(window._pauseTimeout); window._pauseTimeout = null; }
-          window._pauseRecog = null;
-          G("current-word").textContent = "⏸";
-          G("current-word").style.color = "#aaa";
-          G("btn-listen-start").disabled = false;
-          G("btn-listen-start").textContent = "▶ استمر";
-          stopped = true;
-          return;
-        }
-        const heardNorm = norm(_pauseHeard);
-        const matched = expectedWords.filter(w => heardNorm.includes(w) || heardNorm.split(/\s+/).some(hw => hw === w || (w.length > 4 && (hw.startsWith(w.slice(0,4)) || w.startsWith(hw.slice(0,4)))))).length;
-        const ratio = expectedWords.length ? matched / expectedWords.length : 0;
-        if (ratio >= 0.7) G("current-word").style.color = "#1D9E75";
-        else if (ratio >= 0.3) G("current-word").style.color = "#BA7517";
-        else G("current-word").style.color = "#E24B4A";
-      };
-      window._pauseRecog = pr;
-      window._pauseSilencePending = false;
-      try { pr.start(); } catch(e) {}
+
+      function _evalPause() {
+        if (!gotSpeech) return;
+        const hn = norm(heard);
+        const matched = expW.filter(w => hn.includes(w) || hn.split(/\s+/).some(hw => hw===w||(w.length>4&&(hw.startsWith(w.slice(0,4))||w.startsWith(hw.slice(0,4)))))).length;
+        const r = expW.length ? matched/expW.length : 0;
+        document.body.style.background = r>=0.7?"#1D9E75":r>=0.3?"#BA7517":"#E24B4A";
+      }
+
+      function _startPR() {
+        const pr = new SRBrowser();
+        pr.lang = "ar-SA"; pr.continuous = true; pr.interimResults = true;
+        pr.onresult = e => {
+          let f="",im="";
+          for(let i=e.resultIndex;i<e.results.length;i++){if(e.results[i].isFinal)f+=e.results[i][0].transcript;else im+=e.results[i][0].transcript;}
+          const txt=(f+im).trim();
+          if(txt){heard=txt;gotSpeech=true;}
+          const mot=txt.split(/\s+/).filter(Boolean).slice(-1)[0];
+          if(mot){G("current-word").textContent=mot;G("transcript").textContent=txt;G("transcript").style.display="block";}
+        };
+        pr.onend = () => {
+          if(!window._pauseRecog) return;
+          const elapsed = Date.now()-_pauseStart;
+          if(!gotSpeech && elapsed < pauseDur*0.8) {
+            if(window._pauseSilencePending) return;
+            window._pauseSilencePending = true;
+            if(window._pauseTO){clearTimeout(window._pauseTO);window._pauseTO=null;}
+            window._pauseRecog = null;
+            G("current-word").textContent="⏸";
+            document.body.style.background="var(--bg)";
+            stopped=true;
+            G("btn-listen-start").disabled=false;
+            G("btn-listen-start").textContent="▶ استمر";
+            return;
+          }
+          _evalPause();
+          if(window._pauseRecog && !window._pauseSilencePending) {
+            setTimeout(()=>{ try{
+              const r=new SRBrowser(); r.lang="ar-SA"; r.continuous=true; r.interimResults=true;
+              r.onresult=pr.onresult; r.onend=pr.onend; window._pauseRecog=r; r.start();
+            }catch(e){} },0);
+          }
+        };
+        window._pauseRecog = pr;
+        try{pr.start();}catch(e){}
+      }
+      _startPR();
     }
 
-    window._pauseTimeout = setTimeout(() => {
-      window._pauseTimeout = null;
-      if (window._pauseRecog) { try { window._pauseRecog.stop(); } catch(e){} window._pauseRecog = null; }
-      G("current-word").textContent = "—";
-      G("current-word").style.color = "";
-      window._pauseSilencePending = false;
+    window._pauseTO = setTimeout(()=>{
+      window._pauseTO = null;
+      if(window._pauseRecog){try{window._pauseRecog.stop();}catch(e){}window._pauseRecog=null;}
+      G("current-word").textContent="—"; G("current-word").style.color="";
+      document.body.style.background="var(--bg)";
+      window._pauseSilencePending=false;
       tick();
     }, pauseDur);
   });
