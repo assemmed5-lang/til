@@ -713,8 +713,8 @@ window._pauseTO = setTimeout(()=>{
         document.body.style.background="var(--bg)";
         window._pauseSilencePending=false;
         tick();
-      }, 600); // laisse 600ms pour voir la couleur de résultat avant de continuer
-    }, pauseDur);
+      }, 600);
+    }, pauseDur * 0.99);
   });
 }
 
