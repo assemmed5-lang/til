@@ -663,13 +663,18 @@ function tick() {
       const _pauseStart = Date.now();
       window._pauseEnded = false;
 
-      function _evalPauseFinal() {
-        // Évalue et colore UNE SEULE FOIS, à la toute fin de la pause
-        if (!gotSpeech) { document.body.style.background = "var(--bg)"; return; }
-        const hn = norm(heard);
+     function _evalPauseFinal() {
+        // Se base sur ce qui est réellement affiché à l'écran (current-word / transcript)
+        const displayedTxt = (G("transcript").textContent || "").trim();
+        if (!displayedTxt || displayedTxt === "...") {
+          document.body.style.background = "var(--bg)";
+          return false; // rien affiché → déclenche la pause
+        }
+        const hn = norm(displayedTxt);
         const matched = expW.filter(w => hn.includes(w) || hn.split(/\s+/).some(hw => hw===w||(w.length>4&&(hw.startsWith(w.slice(0,4))||w.startsWith(hw.slice(0,4)))))).length;
         const r = expW.length ? matched/expW.length : 0;
         document.body.style.background = r>=0.7?"#1D9E75":r>=0.3?"#BA7517":"#E24B4A";
+        return true; // quelque chose affiché → pas de pause forcée
       }
 
       function _startPR() {
@@ -706,8 +711,20 @@ function tick() {
 window._pauseTO = setTimeout(()=>{
       window._pauseTO = null;
       window._pauseEnded = true;
-      if (window._pauseEvalFinal) window._pauseEvalFinal();
+      const hadText = window._pauseEvalFinal ? window._pauseEvalFinal() : true;
       if(window._pauseRecog){try{window._pauseRecog.stop();}catch(e){}window._pauseRecog=null;}
+
+      if (!hadText) {
+        // Rien affiché à l'écran → active le bouton pause, bloque l'app
+        G("current-word").textContent="⏸";
+        document.body.style.background="var(--bg)";
+        stopped = true;
+        G("btn-listen-start").disabled = false;
+        G("btn-listen-start").textContent = "▶ استمر";
+        window._pauseSilencePending = false;
+        return;
+      }
+
       setTimeout(() => {
         G("current-word").textContent="—"; G("current-word").style.color="";
         document.body.style.background="var(--bg)";
