@@ -708,7 +708,7 @@ function tick() {
       window._pauseEvalFinal = _evalPauseFinal;
     }
 
-window._pauseTO = setTimeout(()=>{
+    window._pauseTO = setTimeout(()=>{
       window._pauseTO = null;
       window._pauseEnded = true;
       const hadText = window._pauseEvalFinal ? window._pauseEvalFinal() : true;
