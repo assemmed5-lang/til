@@ -684,7 +684,8 @@ function tick() {
         pr.onend = () => {
           if(!window._pauseRecog) return;
           const elapsed = Date.now()-_pauseStart;
-          if(!gotSpeech && elapsed < pauseDur*0.8) {
+          // Ne bloque que si on a atteint la FIN de la pause sans aucune parole
+          if(!gotSpeech && elapsed >= pauseDur - 200) {
             if(window._pauseSilencePending) return;
             window._pauseSilencePending = true;
             if(window._pauseTO){clearTimeout(window._pauseTO);window._pauseTO=null;}
@@ -697,7 +698,8 @@ function tick() {
             return;
           }
           _evalPause();
-          if(window._pauseRecog && !window._pauseSilencePending) {
+          // Redémarre tant que la pause n'est pas terminée, silence ou pas
+          if(window._pauseRecog && !window._pauseSilencePending && elapsed < pauseDur - 200) {
             setTimeout(()=>{ try{
               const r=new SRBrowser(); r.lang="ar-SA"; r.continuous=true; r.interimResults=true;
               r.onresult=pr.onresult; r.onend=pr.onend; window._pauseRecog=r; r.start();
