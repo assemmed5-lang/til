@@ -655,6 +655,8 @@ function tick() {
     const SRBrowser = window.SpeechRecognition || window.webkitSpeechRecognition;
     window._pauseRecog = null;
     window._pauseSilencePending = false;
+    G("transcript").textContent = "";
+    G("transcript").style.display = "none";
 
     if ((phase === "listen" || phase === "retry_listen") && SRBrowser) {
       const expVi = phase === "retry_listen" ? (retryMissing[0] ?? curVerseIdx) : curVerseIdx;
