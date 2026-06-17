@@ -629,7 +629,7 @@ function tick() {
     const SRBrowser = window.SpeechRecognition || window.webkitSpeechRecognition;
     window._pauseRecog = null;
 
-    if (phase === "listen" && !SRPlug && SRBrowser) {
+    if (phase === "listen" && SRBrowser) {
       const pr = new SRBrowser();
       pr.lang = "ar-SA";
       pr.continuous = true;
