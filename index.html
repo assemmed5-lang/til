@@ -1048,5 +1048,34 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 </script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  if (navigator.wakeLock) {
+    let wakeLockRef = null;
+    async function requestWakeLock() {
+      try {
+        wakeLockRef = await navigator.wakeLock.request('screen');
+      } catch (e) {}
+    }
+    requestWakeLock();
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        requestWakeLock();
+        setTimeout(() => {
+          const p = G("audio-player");
+          if (p && p.paused && playing && !stopped) {
+            stopped = true;
+            G("btn-listen-start").disabled = false;
+            G("btn-listen-start").classList.remove("hidden");
+            G("btn-listen-stop").classList.add("hidden");
+            G("btn-listen-start").textContent = "▶ متابعة الاستماع";
+            G("rep-state").textContent = "متوقف — اضغط للمتابعة";
+          }
+        }, 300);
+      }
+    });
+  }
+});
+</script>
 </body>
 </html>
