@@ -661,9 +661,11 @@ function tick() {
       const expW = verses[expVi] ? verses[expVi].split(/\s+/).filter(Boolean).map(norm) : [];
       let heard = ""; let gotSpeech = false;
       const _pauseStart = Date.now();
+      window._pauseEnded = false;
 
-      function _evalPause() {
-        if (!gotSpeech) return;
+      function _evalPauseFinal() {
+        // Évalue et colore UNE SEULE FOIS, à la toute fin de la pause
+        if (!gotSpeech) { document.body.style.background = "var(--bg)"; return; }
         const hn = norm(heard);
         const matched = expW.filter(w => hn.includes(w) || hn.split(/\s+/).some(hw => hw===w||(w.length>4&&(hw.startsWith(w.slice(0,4))||w.startsWith(hw.slice(0,4)))))).length;
         const r = expW.length ? matched/expW.length : 0;
@@ -682,43 +684,36 @@ function tick() {
           if(mot){G("current-word").textContent=mot;G("transcript").textContent=txt;G("transcript").style.display="block";}
         };
         pr.onend = () => {
-          if(!window._pauseRecog) return;
-          const elapsed = Date.now()-_pauseStart;
-          // Ne bloque que si on a atteint la FIN de la pause sans aucune parole
-          if(!gotSpeech && elapsed >= pauseDur - 200) {
-            if(window._pauseSilencePending) return;
-            window._pauseSilencePending = true;
-            if(window._pauseTO){clearTimeout(window._pauseTO);window._pauseTO=null;}
-            window._pauseRecog = null;
-            G("current-word").textContent="⏸";
-            document.body.style.background="var(--bg)";
-            stopped=true;
-            G("btn-listen-start").disabled=false;
-            G("btn-listen-start").textContent="▶ استمر";
-            return;
-          }
-          _evalPause();
-          // Redémarre tant que la pause n'est pas terminée, silence ou pas
-          if(window._pauseRecog && !window._pauseSilencePending && elapsed < pauseDur - 200) {
-            setTimeout(()=>{ try{
+          if(!window._pauseRecog || window._pauseEnded) return;
+          // Toujours redémarrer le moteur tant que la pause globale n'est pas finie —
+          // webkitSpeechRecognition s'arrête seul après un court silence, ce n'est PAS
+          // la fin de la pause de 3s, juste la fin d'un cycle d'écoute interne.
+          setTimeout(()=>{
+            if (window._pauseEnded || !window._pauseRecog) return;
+            try{
               const r=new SRBrowser(); r.lang="ar-SA"; r.continuous=true; r.interimResults=true;
               r.onresult=pr.onresult; r.onend=pr.onend; window._pauseRecog=r; r.start();
-            }catch(e){} },0);
-          }
+            }catch(e){}
+          },50);
         };
         window._pauseRecog = pr;
         try{pr.start();}catch(e){}
       }
       _startPR();
+      window._pauseEvalFinal = _evalPauseFinal;
     }
 
-    window._pauseTO = setTimeout(()=>{
+window._pauseTO = setTimeout(()=>{
       window._pauseTO = null;
+      window._pauseEnded = true;
+      if (window._pauseEvalFinal) window._pauseEvalFinal();
       if(window._pauseRecog){try{window._pauseRecog.stop();}catch(e){}window._pauseRecog=null;}
-      G("current-word").textContent="—"; G("current-word").style.color="";
-      document.body.style.background="var(--bg)";
-      window._pauseSilencePending=false;
-      tick();
+      setTimeout(() => {
+        G("current-word").textContent="—"; G("current-word").style.color="";
+        document.body.style.background="var(--bg)";
+        window._pauseSilencePending=false;
+        tick();
+      }, 600); // laisse 600ms pour voir la couleur de résultat avant de continuer
     }, pauseDur);
   });
 }
