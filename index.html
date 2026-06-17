@@ -635,12 +635,17 @@ function tick() {
       pr.continuous = true;
       pr.interimResults = true;
       pr.onresult = e => {
-        let txt = "";
-        for (let i = e.resultIndex; i < e.results.length; i++) txt += e.results[i][0].transcript;
-        const mot = txt.trim().split(/\s+/).filter(Boolean).slice(-1)[0];
+        let final = "";
+        let interim = "";
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          if (e.results[i].isFinal) final += e.results[i][0].transcript;
+          else interim += e.results[i][0].transcript;
+        }
+        const txt = (final + interim).trim();
+        const mot = txt.split(/\s+/).filter(Boolean).slice(-1)[0];
         if (mot) {
           G("current-word").textContent = mot;
-          G("transcript").textContent = txt.trim();
+          G("transcript").textContent = txt;
           G("transcript").style.display = "block";
         }
       };
