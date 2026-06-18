@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -27,6 +26,11 @@
   --gold-light: #FAEEDA; --gold-mid: #BA7517; --gold-dark: #412402;
   --red-mid: #E24B4A; --red-light: #FCEBEB; --red-dark: #501313;
   --bg: #1a1208;
+  /* ══ CALIBRAGE DU MOT ══
+     Changez --word-size pour ajuster la taille (ex: 26vw, 30vw, 35vw...)
+     Changez --word-weight pour l'épaisseur (400=normal, 700=gras, 900=très gras) */
+  --word-size:   28vw;
+  --word-weight: 800;
 }
 html, body { height: 100%; overflow: hidden; background: var(--bg); }
 body { display: flex; flex-direction: column; font-family: 'Traditional Arabic','Arial Unicode MS', serif; }
@@ -38,18 +42,20 @@ body { display: flex; flex-direction: column; font-family: 'Traditional Arabic',
 }
 #current-word {
   color: #f5e6c0;
-  font-size: 22vw;
-  line-height: 1.3;
+  font-size: var(--word-size);
+  font-weight: var(--word-weight);
+  line-height: 1.2;
   text-align: center;
   direction: rtl;
   word-break: break-word;
   transition: font-size 0.2s;
+  text-shadow: 0 2px 18px rgba(0,0,0,0.5);
 }
 #btn-bar {
-  display: flex; gap: 10px; padding: 12px;
-  background: rgba(0,0,0,0.4);
+  display: flex; gap: 10px; padding: 14px;
+  background: rgba(0,0,0,0.5);
 }
-.btn { flex:1; padding: 14px 8px; font-size: 16px; font-weight: 700; border: none; border-radius: 12px; cursor: pointer; font-family: inherit; }
+.btn { flex:1; padding: 18px 8px; font-size: 28px; font-weight: 700; border: none; border-radius: 14px; cursor: pointer; font-family: inherit; }
 .btn:disabled { opacity: 0.35; cursor: not-allowed; }
 .btn-green { background: var(--green-mid); color: #fff; }
 .btn-red   { background: var(--red-mid);   color: #fff; }
@@ -60,36 +66,65 @@ audio { position:fixed; bottom:-100px; left:-100px; width:1px; height:1px; }
 #ayah-full-box,#exam-ayahs-box,#transcript,#progress-track,#mic-ring,
 #score-box,#word-grid,#n-missing,#n-extra,.words-lbl { display:none !important; }
 
+/* ─── Écran de révision ─── */
+#review-screen {
+  position: fixed; inset: 0; background: #0d1f0a;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 20px; z-index: 9998; padding: 24px; text-align: center;
+}
+#review-screen h2 { color: #f5e6c0; font-size: 5vw; }
+#review-screen .review-sura-name { color: var(--gold-mid); font-size: 8vw; font-weight: 700; margin: 10px 0; }
+#review-screen p { color: #c8b87e; font-size: 4vw; line-height: 1.6; }
+#review-screen .rev-btn {
+  width: 85%; max-width: 340px; padding: 18px;
+  font-size: 6vw; font-weight: 700; border: none; border-radius: 14px;
+  background: var(--green-mid); color: #fff; cursor: pointer; font-family: inherit;
+  margin-top: 6px;
+}
+#review-screen .rev-btn:active { background: var(--green-dark); }
+#review-phase-label {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  background: rgba(0,0,0,0.7); color: var(--gold-light);
+  padding: 8px 16px; font-size: 4vw; text-align: center; display: none;
+}
+
 /* ─── Écran de sélection d'enfant ─── */
 #kid-select {
   position: fixed; inset: 0; background: var(--bg);
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 24px; z-index: 9999; padding: 20px;
+  gap: 28px; z-index: 9999; padding: 24px;
 }
-#kid-select h1 { color: #f5e6c0; font-size: 6vw; margin-bottom: 10px; }
 .kid-btn {
-  width: 80%; max-width: 320px; padding: 20px;
-  font-size: 7vw; font-weight: 700; border: none; border-radius: 16px;
+  width: 82%; max-width: 340px; padding: 28px;
+  font-size: 11vw; font-weight: 800; border: none; border-radius: 20px;
   background: var(--green-mid); color: #fff; cursor: pointer; font-family: inherit;
+  letter-spacing: 0.02em;
 }
 .kid-btn:active { background: var(--green-dark); }
 </style>
 </head>
 <body>
 <div id="kid-select">
-  <h1>من يقرأ اليوم؟</h1>
   <button class="kid-btn" data-kid="meriem">مريم</button>
   <button class="kid-btn" data-kid="adam">آدم</button>
   <button class="kid-btn" data-kid="yahia">يحيى</button>
 </div>
+<div id="review-screen" style="display:none">
+  <h2>وقت المراجعة! 📖</h2>
+  <div class="review-sura-name" id="rev-sura-name">الفاتحة</div>
+  <p id="rev-msg">لقد مضى وقت على حفظك لهذه السورة.<br>حان وقت مراجعتها للتثبيت!</p>
+  <button class="rev-btn" id="btn-start-review">▶ ابدأ المراجعة</button>
+  <button class="rev-btn" style="background:rgba(255,255,255,0.1);color:#aaa;margin-top:0" id="btn-skip-review">تخطّ الآن (لن تُحفظ)</button>
+</div>
+<div id="review-phase-label"></div>
 <div id="screen">
   <div id="current-word">—</div>
 </div>
 <div id="btn-bar">
-  <button class="btn btn-green" id="btn-listen-start" disabled>▶ ابدأ</button>
+  <button class="btn btn-green" id="btn-listen-start" disabled>▶</button>
   <button class="btn btn-ghost hidden" id="btn-listen-stop">⏸</button>
-  <button class="btn btn-red hidden" id="btn-rec-start">🎙️ سمِّع</button>
-  <button class="btn btn-green hidden" id="btn-rec-stop">✅ انتهيت</button>
+  <button class="btn btn-red hidden" id="btn-rec-start">🎙️</button>
+  <button class="btn btn-green hidden" id="btn-rec-stop">✅</button>
   <button class="btn btn-ghost hidden" id="btn-restart">↩</button>
 </div>
 
@@ -223,7 +258,7 @@ let wordCues   = [];
 let audioUrl   = "001.mp3";
 let audioB64   = null;
 let activeBankIdx = -1;
-let curVerseIdx=0, examUpTo=0, phase="idle", retryMissing=[];
+let curVerseIdx=0, examUpTo=0, phase="idle", retryMissing=[], retryMissingWords=[];
 let playing=false, stopped=false, repCur=0, repTotal=10, recog=null, finalTx="", lastFullTx="";
 
 /* ══════════════════════════════════════════════
@@ -412,6 +447,297 @@ const BANQUE_SOURATES = [
 10
 00:00:21,000 --> 00:00:28,030
 الْأَبْتَرُ`
+  },
+  {
+    nom: "الإخلاص",
+    mp3: "112.mp3",
+    srtVersets: `1
+00:00:00,371 --> 00:00:08,455
+بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ
+
+2
+00:00:08,734 --> 00:00:12,537
+قُلْ هُوَ اللَّهُ أَحَدٌ
+
+3
+00:00:14,438 --> 00:00:19,160
+اللَّهُ الصَّمَدُ
+
+4
+00:00:19,300 --> 00:00:23,361
+لَمْ يَلِدْ وَلَمْ يُولَدْ
+
+5
+00:00:24,987 --> 00:00:30,806
+وَلَمْ يَكُن لَّهُ كُفُوًا أَحَدٌ`,
+    srtMots: `1
+00:00:00,371 --> 00:00:01,030
+بسم
+2
+00:00:01,070 --> 00:00:02,632
+الله
+3
+00:00:02,652 --> 00:00:04,793
+الرحمن
+4
+00:00:04,812 --> 00:00:08,455
+الرحيم
+5
+00:00:08,734 --> 00:00:09,154
+قل
+6
+00:00:09,435 --> 00:00:09,795
+هو
+7
+00:00:09,955 --> 00:00:11,676
+الله
+8
+00:00:11,756 --> 00:00:12,537
+أحد
+9
+00:00:14,438 --> 00:00:16,338
+الله
+10
+00:00:16,379 --> 00:00:19,160
+الصمد
+11
+00:00:19,300 --> 00:00:19,899
+لم
+12
+00:00:19,980 --> 00:00:21,060
+يلد
+13
+00:00:21,161 --> 00:00:22,321
+ولم
+14
+00:00:22,420 --> 00:00:23,361
+يولد
+15
+00:00:24,987 --> 00:00:25,951
+ولم
+16
+00:00:26,051 --> 00:00:27,135
+يكن
+17
+00:00:27,214 --> 00:00:28,318
+له
+18
+00:00:28,478 --> 00:00:30,044
+كفوا
+19
+00:00:30,123 --> 00:00:30,806
+أحد`
+  },
+  {
+    nom: "الفلق",
+    mp3: "113.mp3",
+    srtVersets: `1
+00:00:00,408 --> 00:00:08,410
+بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ
+
+2
+00:00:08,550 --> 00:00:14,570
+قُلْ أَعُوذُ بِرَبِّ الْفَلَقِ
+
+3
+00:00:14,711 --> 00:00:19,711
+مِن شَرِّ مَا خَلَقَ
+
+4
+00:00:19,852 --> 00:00:26,413
+وَمِن شَرِّ غَاسِقٍ إِذَا وَقَبَ
+
+5
+00:00:27,868 --> 00:00:36,853
+وَمِن شَرِّ النَّفَّاثَاتِ فِي الْعُقَدِ
+
+6
+00:00:37,012 --> 00:00:43,435
+وَمِن شَرِّ حَاسِدٍ إِذَا حَسَدَ`,
+    srtMots: `1
+00:00:00,408 --> 00:00:01,088
+بسم
+2
+00:00:01,147 --> 00:00:02,267
+الله
+3
+00:00:02,847 --> 00:00:04,868
+الرحمن
+4
+00:00:04,969 --> 00:00:08,410
+الرحيم
+5
+00:00:08,550 --> 00:00:08,949
+قل
+6
+00:00:09,189 --> 00:00:10,470
+أعوذ
+7
+00:00:10,570 --> 00:00:12,070
+برب
+8
+00:00:12,169 --> 00:00:14,570
+الفلق
+9
+00:00:14,711 --> 00:00:15,490
+من
+10
+00:00:15,791 --> 00:00:16,611
+شر
+11
+00:00:17,010 --> 00:00:17,670
+ما
+12
+00:00:17,850 --> 00:00:19,711
+خلق
+13
+00:00:19,852 --> 00:00:21,051
+ومن
+14
+00:00:21,251 --> 00:00:21,931
+شر
+15
+00:00:22,091 --> 00:00:24,373
+راسق
+16
+00:00:24,472 --> 00:00:25,573
+إذا
+17
+00:00:25,672 --> 00:00:26,413
+وقب
+18
+00:00:27,868 --> 00:00:29,070
+ومن
+19
+00:00:29,250 --> 00:00:31,310
+شر
+20
+00:00:31,350 --> 00:00:33,851
+النفاسات
+21
+00:00:33,991 --> 00:00:34,271
+في
+22
+00:00:34,292 --> 00:00:36,853
+العقد
+23
+00:00:37,012 --> 00:00:38,253
+ومن
+24
+00:00:38,414 --> 00:00:39,334
+شر
+25
+00:00:39,493 --> 00:00:41,314
+حاسد
+26
+00:00:41,414 --> 00:00:42,536
+إذا
+27
+00:00:42,695 --> 00:00:43,435
+حسد`
+  },
+  {
+    nom: "الناس",
+    mp3: "114.mp3",
+    srtVersets: `1
+00:00:00,260 --> 00:00:08,586
+بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ
+
+2
+00:00:08,846 --> 00:00:15,172
+قُلْ أَعُوذُ بِرَبِّ النَّاسِ
+
+3
+00:00:16,612 --> 00:00:20,236
+مَلِكِ النَّاسِ
+
+4
+00:00:21,317 --> 00:00:25,179
+إِلَٰهِ النَّاسِ
+
+5
+00:00:26,391 --> 00:00:34,679
+مِن شَرِّ الْوَسْوَاسِ الْخَنَّاسِ
+
+6
+00:00:35,960 --> 00:00:45,067
+الَّذِي يُوَسْوِسُ فِي صُدُورِ النَّاسِ
+
+7
+00:00:46,527 --> 00:00:52,872
+مِنَ الْجِنَّةِ وَالنَّاسِ`,
+    srtMots: `1
+00:00:00,260 --> 00:00:00,981
+بسم
+2
+00:00:01,020 --> 00:00:01,921
+الله
+3
+00:00:02,342 --> 00:00:04,743
+الرحمن
+4
+00:00:04,783 --> 00:00:08,586
+الرحيم
+5
+00:00:08,846 --> 00:00:09,127
+قل
+6
+00:00:09,446 --> 00:00:10,848
+أعوذ
+7
+00:00:10,948 --> 00:00:12,349
+برب
+8
+00:00:12,390 --> 00:00:15,172
+الناس
+9
+00:00:16,612 --> 00:00:17,152
+ملك
+10
+00:00:17,172 --> 00:00:20,236
+الناس
+11
+00:00:21,317 --> 00:00:21,696
+إله
+12
+00:00:21,757 --> 00:00:25,179
+الناس
+13
+00:00:26,391 --> 00:00:27,253
+من
+14
+00:00:27,393 --> 00:00:28,434
+شر
+15
+00:00:28,474 --> 00:00:30,775
+الوسواس
+16
+00:00:30,856 --> 00:00:34,679
+الخناس
+17
+00:00:35,960 --> 00:00:37,680
+الذي
+18
+00:00:37,801 --> 00:00:39,682
+يوسوس
+19
+00:00:39,823 --> 00:00:40,262
+في
+20
+00:00:40,643 --> 00:00:42,084
+صدور
+21
+00:00:42,164 --> 00:00:45,067
+الناس
+22
+00:00:46,527 --> 00:00:47,048
+من
+23
+00:00:47,107 --> 00:00:49,609
+الجنة
+24
+00:00:49,729 --> 00:00:52,872
+والناس`
   }
 ];
 
@@ -471,25 +797,46 @@ function loadState() {
   } catch(e) { return false; }
 }
 
-// Récupère la dernière progression depuis Firebase (autre appareil) et
-// l'applique si elle est plus récente que la copie locale, puis relance l'écran.
+// Sync Firebase en arrière-plan uniquement — onDone() appelé immédiatement.
 function syncFromFirebase(onDone) {
+  if (onDone) onDone();
+  if (!currentKid) return;
+  // state
   try {
     fbDB.ref("tilawa/" + currentKid + "/state").once("value").then(snap => {
-      const remote = snap.val();
-      let local = null;
-      try { local = JSON.parse(localStorage.getItem(kidKey("state"))); } catch(e) {}
-      if (remote && (!local || (remote.updatedAt||0) > (local.updatedAt||0))) {
-        localStorage.setItem(kidKey("state"), JSON.stringify(remote));
-      }
-      const remoteSura = parseInt(remote && typeof remote.curSuraIdx === "number" ? remote.curSuraIdx : NaN);
-      if (!isNaN(remoteSura)) {
-        const localSura = parseInt(localStorage.getItem(kidKey("sura")) || "0");
-        if (remoteSura !== localSura) localStorage.setItem(kidKey("sura"), remoteSura);
-      }
-      if (onDone) onDone();
-    }).catch(() => { if (onDone) onDone(); });
-  } catch(e) { if (onDone) onDone(); }
+      try {
+        const remote = snap.val();
+        let local = null;
+        try { local = JSON.parse(localStorage.getItem(kidKey("state"))); } catch(e) {}
+        if (remote && (!local || (remote.updatedAt||0) > (local.updatedAt||0))) {
+          localStorage.setItem(kidKey("state"), JSON.stringify(remote));
+        }
+        const remoteSura = parseInt(remote && typeof remote.curSuraIdx === "number" ? remote.curSuraIdx : NaN);
+        if (!isNaN(remoteSura)) {
+          const localSura = parseInt(localStorage.getItem(kidKey("sura")) || "0");
+          if (remoteSura !== localSura) localStorage.setItem(kidKey("sura"), remoteSura);
+        }
+      } catch(e) {}
+    }).catch(() => {});
+  } catch(e) {}
+  // acquired
+  try {
+    fbDB.ref("tilawa/" + currentKid + "/acquired").once("value").then(snap => {
+      try {
+        const remoteAcq = snap.val();
+        if (remoteAcq) {
+          let localAcq = {};
+          try { localAcq = JSON.parse(localStorage.getItem(kidKey("acquired")) || "{}"); } catch {}
+          Object.keys(remoteAcq).forEach(k => {
+            if (!localAcq[k] || (remoteAcq[k].lastReviewedAt||0) > (localAcq[k].lastReviewedAt||0)) {
+              localAcq[k] = remoteAcq[k];
+            }
+          });
+          localStorage.setItem(kidKey("acquired"), JSON.stringify(localAcq));
+        }
+      } catch {}
+    }).catch(() => {});
+  } catch {}
 }
 
 function startSession() {
@@ -547,7 +894,7 @@ function beginListenPhase() {
   G("prog-pct").textContent = "0%";
   G("rep-of").innerHTML = "من أصل <strong>" + reps + "</strong> تكرارات";
   G("rep-state").textContent = "جاهز للبدء";
-  G("btn-listen-start").textContent = "▶ ابدأ الاستماع";
+  G("btn-listen-start").textContent = "▶";
   G("btn-listen-start").disabled = false;
   G("btn-listen-start").classList.remove("hidden");
   G("btn-listen-stop").classList.add("hidden");
@@ -593,7 +940,7 @@ function beginRetryListenPhase(missingVerseIdxList) {
   G("prog-pct").textContent = "0%";
   G("rep-of").innerHTML = "من أصل <strong>2</strong> تكرارات";
   G("rep-state").textContent = "جاهز للبدء";
-  G("btn-listen-start").textContent = "▶ ابدأ المراجعة";
+  G("btn-listen-start").textContent = "▶";
   G("btn-listen-start").disabled = false;
   G("btn-listen-start").classList.remove("hidden");
   G("btn-listen-stop").classList.add("hidden");
@@ -688,10 +1035,8 @@ function playOnce(onEnd) {
     }
 
     if (phase === "listen") {
-      const versDur = endTime - startTime;
-      const half = Math.ceil(repTotal / 2);
-      const targetDur = repCur < half ? 26 : 23;
-      p.playbackRate = Math.min(Math.max(versDur / targetDur, 0.65), 1.0);
+      // 5 premières répétitions en ralenti (0.75×), le reste à vitesse normale (1.0×)
+      p.playbackRate = repCur < 5 ? 0.75 : 1.0;
     } else {
       p.playbackRate = 1.0;
     }
@@ -732,6 +1077,97 @@ function startReps() {
   tick();
 }
 
+/* ── Retry mot par mot : chaque mot joué 1 fois, les mots ratés 3 fois ── */
+function startRetryWordByWord() {
+  playing = true; stopped = false;
+  G("btn-listen-start").classList.add("hidden");
+  G("btn-listen-stop").classList.remove("hidden");
+
+  // Construire la séquence : tous les mots des versets en retry
+  // Pour chaque mot : 1 fois si ok, 3 fois si raté
+  const badWords = new Set(retryMissingWords.map(w => norm(w)));
+
+  // Collecter tous les wordCues des versets concernés
+  const verseWordCues = [];
+  retryMissing.forEach(vi => {
+    const vc = verseCues[vi];
+    if (!vc) return;
+    const wc = wordCues.filter(c => c.start >= vc.start - 0.1 && c.end <= vc.end + 0.1);
+    wc.forEach(c => verseWordCues.push({ cue: c, missed: badWords.has(norm(c.text)) }));
+  });
+
+  if (verseWordCues.length === 0) {
+    // Fallback : jouer le verset entier normalement
+    startReps(); return;
+  }
+
+  // Répéter la séquence repTotal fois (2 par défaut)
+  let repsDone = 0;
+
+  function doOneRep() {
+    if (stopped) { playing = false; return; }
+    if (repsDone >= repTotal) {
+      // Fini — passer à l'examen
+      playing = false;
+      G("btn-listen-stop").classList.add("hidden");
+      G("rep-state").textContent = "✅ انتهى الاستماع! جاري الانتقال للتسميع...";
+      setTimeout(() => {
+        G("audio-player").playbackRate = 1.0;
+        beginExamPhase();
+      }, 1500);
+      return;
+    }
+
+    G("rep-state").textContent = "▶ التكرار رقم " + (repsDone + 1) + " من " + repTotal + "...";
+    repCur = repsDone;
+    G("rep-cur").textContent = repsDone;
+    const pct = Math.round((repsDone / repTotal) * 100);
+    G("prog-fill").style.width = pct + "%";
+    G("prog-pct").textContent = pct + "%";
+
+    // Jouer tous les mots de cette répétition
+    const seq = [];
+    verseWordCues.forEach(({ cue, missed }) => {
+      const times = missed ? 3 : 1;
+      for (let i = 0; i < times; i++) seq.push({ cue, missed, rep: i + 1, total: times });
+    });
+
+    function playSeq() {
+      if (stopped) { playing = false; return; }
+      if (seq.length === 0) {
+        repsDone++;
+        repCur = repsDone;
+        G("rep-cur").textContent = repsDone;
+        const pct2 = Math.round((repsDone / repTotal) * 100);
+        G("prog-fill").style.width = pct2 + "%";
+        G("prog-pct").textContent = pct2 + "%";
+        setTimeout(doOneRep, 400);
+        return;
+      }
+      const { cue, missed, rep, total } = seq.shift();
+
+      // Affichage : rouge + compteur si mot raté
+      G("current-word").textContent = cue.text;
+      G("current-word").style.color = missed ? "#E24B4A" : "#f5e6c0";
+      if (missed && total > 1) {
+        G("rep-state").textContent = "⚠️ " + cue.text + "  (" + rep + "/" + total + ")";
+      }
+
+      window._activeWindow = { start: cue.start, end: cue.end + 0.05 };
+      window._activeCues   = [cue];
+      G("audio-player").playbackRate = missed ? 0.8 : 1.0;
+
+      playOnce(() => {
+        G("current-word").style.color = "";
+        setTimeout(playSeq, missed ? 250 : 120);
+      });
+    }
+    playSeq();
+  }
+
+  doOneRep();
+}
+
 let examSolo = true;
 
 /* ─── helper: stop any active pause recognizer ─── */
@@ -749,6 +1185,42 @@ function stopPauseRecog() {
     try { window._pauseRecog.stop(); } catch(e) {}
     window._pauseRecog = null;
   }
+}
+
+
+/* ── Jouer les mots manquants N fois après chaque répétition retry ── */
+function playMissingWords(words, times, onDone) {
+  if (!words || words.length === 0 || times <= 0) { onDone(); return; }
+  const sequence = [];
+  for (let t = 0; t < times; t++) {
+    words.forEach(w => sequence.push(w));
+  }
+  function playNext() {
+    if (stopped || sequence.length === 0) { onDone(); return; }
+    const word = sequence.shift();
+    // Trouver le wordCue correspondant à ce mot
+    const nw = norm(word);
+    const cue = wordCues.find(c => norm(c.text) === nw) ||
+                wordCues.find(c => norm(c.text).includes(nw)) ||
+                wordCues.find(c => nw.includes(norm(c.text)));
+    if (!cue) { playNext(); return; }
+    // Afficher le mot en surbrillance rouge
+    G("current-word").textContent = word;
+    G("current-word").style.color = "#E24B4A";
+    const saved = window._activeWindow;
+    const savedCues = window._activeCues;
+    window._activeWindow = { start: cue.start, end: cue.end + 0.1 };
+    window._activeCues = [cue];
+    const p = G("audio-player");
+    p.playbackRate = 0.85; // légèrement ralenti pour bien entendre
+    playOnce(() => {
+      window._activeWindow = saved;
+      window._activeCues = savedCues;
+      G("current-word").style.color = "";
+      setTimeout(playNext, 300);
+    });
+  }
+  playNext();
 }
 
 function tick() {
@@ -774,8 +1246,17 @@ function tick() {
     }, 1500);
     return;
   }
-  G("rep-state").textContent = "▶ التكرار رقم " + (repCur+1) + " من " + repTotal + "...";
+  const speedLabel = (phase === "listen" && repCur < 5) ? " 🐢 بطيء" : " ⚡ عادي";
+  G("rep-state").textContent = "▶ التكرار رقم " + (repCur+1) + " من " + repTotal + speedLabel;
   playOnce(() => {
+    if (stopped) return;
+    // En phase retry : jouer les mots manquants 3 fois puis continuer
+    if (phase === "retry_listen" && retryMissingWords.length > 0) {
+      playMissingWords(retryMissingWords, 3, afterVersePlay);
+    } else {
+      afterVersePlay();
+    }
+    function afterVersePlay() {
     if (stopped) return;
     repCur++;
     G("rep-cur").textContent = repCur;
@@ -857,7 +1338,7 @@ function tick() {
         document.body.style.background="var(--bg)";
         stopped = true;
         G("btn-listen-start").disabled = false;
-        G("btn-listen-start").textContent = "▶ استمر";
+        G("btn-listen-start").textContent = "▶";
         window._pauseSilencePending = false;
         return;
       }
@@ -869,13 +1350,17 @@ function tick() {
         tick();
       }, 600);
     }, pauseDur * 0.99);
+    } // end afterVersePlay
   });
 }
 
 G("btn-listen-start").addEventListener("click", () => {
-  if (phase === "listen" || phase === "retry_listen") {
+  if (phase === "listen") {
     G("btn-listen-start").disabled = true;
     startReps();
+  } else if (phase === "retry_listen") {
+    G("btn-listen-start").disabled = true;
+    startRetryWordByWord();
   }
 });
 G("btn-listen-stop").addEventListener("click", () => {
@@ -889,7 +1374,7 @@ G("btn-listen-stop").addEventListener("click", () => {
   G("btn-listen-stop").classList.add("hidden");
   G("btn-listen-start").classList.remove("hidden");
   G("btn-listen-start").disabled = false;
-  G("btn-listen-start").textContent = "▶ متابعة الاستماع";
+  G("btn-listen-start").textContent = "▶";
   G("rep-state").textContent = "متوقف — اضغط للمتابعة";
 });
 
@@ -1031,8 +1516,583 @@ G("btn-rec-stop").addEventListener("click", () => {
   if (!finalTx.trim() && lastFullTx) finalTx = lastFullTx;
   setTimeout(() => evaluate(), 1500);
 });
+function playGroupOnce(then) {
+  const indices = [];
+  for (let i = 0; i <= curVerseIdx; i++) indices.push(i);
+  function playNext() {
+    if (!indices.length) { G("audio-player").playbackRate = 1.0; then(); return; }
+    const vi = indices.shift();
+    const vc = verseCues[vi];
+    if (!vc) { playNext(); return; }
+    window._activeWindow = { start: vc.start, end: vc.end };
+    window._activeCues = wordCues.filter(c => c.start >= vc.start - 0.1 && c.end <= vc.end + 0.1);
+    G("audio-player").playbackRate = 1.0;
+    playOnce(playNext);
+  }
+  playNext();
+}
+
+function advanceAfterPass() {
+  if (examSolo) {
+    if (curVerseIdx === 0) {
+      const next = curVerseIdx + 1;
+      if (next >= verses.length) { showDone(); return; }
+      curVerseIdx = next;
+      examSolo = true;
+      beginListenPhase();
+    } else {
+      playGroupOnce(() => {
+        examSolo = false;
+        beginExamPhase();
+      });
+    }
+  } else {
+    const next = curVerseIdx + 1;
+    if (next >= verses.length) { showDone(); return; }
+    curVerseIdx = next;
+    examSolo = true;
+    beginListenPhase();
+  }
+}
+
+function showDone() {
+  localStorage.removeItem(kidKey("state"));
+  // Marquer la sourate comme apprise (pour le système de révision)
+  markSuraAcquired(curSuraIdx);
+  G("card-result").classList.remove("hidden");
+  const box = G("score-box"); box.className = "score-box ex";
+  const nextIdx = curSuraIdx + 1;
+  if (nextIdx < BANQUE_SOURATES.length) {
+    G("score-num").textContent = "🎉";
+    G("score-lbl").textContent = "أحسنت! حفظت " + BANQUE_SOURATES[curSuraIdx].nom + "!";
+    G("score-msg").textContent = "الانتقال إلى " + BANQUE_SOURATES[nextIdx].nom + "...";
+    G("n-missing").classList.add("hidden");
+    G("n-extra").classList.add("hidden");
+    G("card-result").scrollIntoView({ behavior:"smooth", block:"start" });
+    setTimeout(() => {
+      curSuraIdx = nextIdx;
+      localStorage.setItem(kidKey("sura"), curSuraIdx);
+      chargerSourate(curSuraIdx);
+      curVerseIdx=0; examUpTo=0; phase="idle"; repCur=0; repTotal=10;
+      playing=false; stopped=false; finalTx=""; lastFullTx=""; examSolo=true;
+      G("card-result").classList.add("hidden");
+      const p = document.querySelector("audio");
+      p.src = audioUrl; p._loadedUrl = audioUrl; p.load();
+      buildProgressTrack();
+      beginListenPhase();
+    }, 3000);
+  } else {
+    G("score-num").textContent = "🏆";
+    G("score-lbl").textContent = "أحسنت! حفظت جميع السور!";
+    G("score-msg").textContent = "لقد أتقنت البرنامج كاملاً!";
+    G("n-missing").classList.add("hidden");
+    G("n-extra").classList.add("hidden");
+    G("card-result").scrollIntoView({ behavior:"smooth", block:"start" });
+    localStorage.removeItem(kidKey("sura"));
+  }
+}
+
+/* ═══════════════════════════════════════════════════════
+   SYSTÈME DE RÉVISION ESPACÉE (Spaced Repetition)
+   ═══════════════════════════════════════════════════════
+   Pour chaque sourate acquise, on stocke :
+     tilawa_<kid>_acquired  →  { suraIdx: { learnedAt, lastReviewedAt, reviewCount } }
+
+   Programme :
+     +10 jours → 1ère révision
+     +20 jours (30j total) → 2ème révision
+     puis tous les 30 jours (cyclique, non-cumulatif)
+
+   Si l'enfant revient après >30j sans avoir révisé :
+     → toutes les sourates acquises non révisées récemment sont
+       dues d'un coup, mais on n'en fait QU'UNE à la fois
+     → pas de nouvelles sourates tant que des révisions sont dues
+*/
+
+/* ─── Gestion du stockage "acquis" ─── */
+function loadAcquired() {
+  try { return JSON.parse(localStorage.getItem(kidKey("acquired")) || "{}"); } catch { return {}; }
+}
+function saveAcquired(a) {
+  localStorage.setItem(kidKey("acquired"), JSON.stringify(a));
+  try { fbDB.ref("tilawa/" + currentKid + "/acquired").set(a); } catch(e) {}
+}
+
+/* Marquer une sourate comme apprise (appelé depuis showDone) */
+function markSuraAcquired(suraIdx) {
+  const a = loadAcquired();
+  if (!a[suraIdx]) {
+    a[suraIdx] = { learnedAt: Date.now(), lastReviewedAt: null, reviewCount: 0 };
+    saveAcquired(a);
+  }
+}
+
+/* Marquer une révision comme faite */
+function markReviewDone(suraIdx) {
+  const a = loadAcquired();
+  if (a[suraIdx]) {
+    a[suraIdx].lastReviewedAt = Date.now();
+    a[suraIdx].reviewCount = (a[suraIdx].reviewCount || 0) + 1;
+    saveAcquired(a);
+  }
+}
+
+/**
+ * Retourne la liste des sourates dont la révision est due,
+ * une seule entrée par sourate (non-cumulatif).
+ * Tri: la plus urgente en premier.
+ */
+function getDueReviews() {
+  const a = loadAcquired();
+  const now = Date.now();
+  const DAY = 24 * 60 * 60 * 1000;
+  const due = [];
+
+  Object.keys(a).forEach(idxStr => {
+    const si = parseInt(idxStr);
+    const rec = a[si];
+    const learnedAt = rec.learnedAt;
+    const lastRev   = rec.lastReviewedAt;
+    const daysSinceLearned  = (now - learnedAt) / DAY;
+    const daysSinceLastRev  = lastRev ? (now - lastRev) / DAY : Infinity;
+    const reviewCount = rec.reviewCount || 0;
+
+    let isDue = false;
+    let urgency = 0; // plus petit = plus urgent
+
+    if (reviewCount === 0) {
+      // 1ère révision : due après 10 jours
+      if (daysSinceLearned >= 10) {
+        isDue = true;
+        urgency = daysSinceLearned - 10; // depuis combien de temps elle est due
+      }
+    } else if (reviewCount === 1) {
+      // 2ème révision : due 20 jours après la 1ère révision (soit ~30j après apprentissage)
+      if (daysSinceLastRev >= 20) {
+        isDue = true;
+        urgency = daysSinceLastRev - 20;
+      }
+    } else {
+      // Révisions cycliques : toutes les 30 jours depuis la dernière révision
+      if (daysSinceLastRev >= 30) {
+        isDue = true;
+        urgency = daysSinceLastRev - 30;
+      }
+    }
+
+    if (isDue) due.push({ suraIdx: si, urgency });
+  });
+
+  // Trier par urgence décroissante (la plus en retard en premier)
+  due.sort((a, b) => b.urgency - a.urgency);
+  return due;
+}
+
+/**
+ * Vérifie si une nouvelle session doit commencer par une révision.
+ * Retourne true si une révision a été proposée, false sinon.
+ */
+function checkAndProposeRevision() {
+  const due = getDueReviews();
+  if (due.length === 0) return false;
+
+  const { suraIdx } = due[0];
+  const sura = BANQUE_SOURATES[suraIdx];
+  if (!sura) return false;
+
+  const a = loadAcquired();
+  const rec = a[suraIdx];
+  const now = Date.now();
+  const DAY = 24 * 60 * 60 * 1000;
+  const daysSinceLearned = Math.floor((now - rec.learnedAt) / DAY);
+
+  const revScreen = G("review-screen");
+  G("rev-sura-name").textContent = sura.nom;
+
+  let msg = "";
+  if (rec.reviewCount === 0) {
+    msg = `مضى على حفظها ${daysSinceLearned} يوماً — حان وقت التثبيت الأول!`;
+  } else {
+    const daysSinceLastRev = Math.floor((now - rec.lastReviewedAt) / DAY);
+    msg = `مضى ${daysSinceLastRev} يوماً على آخر مراجعة.<br>حان وقت المراجعة الدورية!`;
+  }
+
+  if (due.length > 1) {
+    msg += `<br><small style="color:#BA7517">(${due.length} سورة بحاجة للمراجعة)</small>`;
+  }
+  G("rev-msg").innerHTML = msg;
+
+  revScreen.style.display = "flex";
+
+  // Stocker quel sura on va réviser
+  window._pendingReviewSuraIdx = suraIdx;
+  return true;
+}
+
+/* ─── Bouton "ابدأ المراجعة" ─── */
+G("btn-start-review").addEventListener("click", () => {
+  G("review-screen").style.display = "none";
+  const si = window._pendingReviewSuraIdx;
+  startReviewSession(si);
+});
+
+/* ─── Bouton "تخطّ" (sans sauvegarder) ─── */
+G("btn-skip-review").addEventListener("click", () => {
+  G("review-screen").style.display = "none";
+  // On ne marque PAS la révision : elle sera reproposée à la prochaine ouverture.
+  // Lancer quand même la session normale
+  startNormalSession();
+});
+
+/* ══════════════════════════════════════════════
+   SESSION DE RÉVISION D'UNE SOURATE COMPLÈTE
+   ══════════════════════════════════════════════
+   Étapes :
+   1. Écoute de chaque verset (1 fois) successivement
+   2. Examen verset par verset → si échec, répéter ce verset, puis re-examiner
+   3. Lecture complète de la sourate (1 fois)
+   4. Examen de la sourate entière → si échec, répéter, puis re-examiner
+   5. Succès → marquer révision faite → retour normal
+*/
+
+let revMode = false;       // on est en mode révision
+let revSuraIdx = -1;       // sourate en cours de révision
+let revVerseIdx = 0;       // verset courant (phase écoute/examen individuel)
+let revPhase = "listen";   // "listen" | "exam_single" | "play_all" | "exam_all"
+let revVerses = [];        // versets de la sourate en révision
+let revVerseCues = [];
+let revWordCues  = [];
+let revAudioUrl  = "";
+
+function startReviewSession(suraIdx) {
+  revMode = true;
+  revSuraIdx = suraIdx;
+  revVerseIdx = 0;
+  revPhase = "listen";
+
+  const sura = BANQUE_SOURATES[suraIdx];
+  revAudioUrl  = sura.mp3;
+  revVerseCues = parseSRT(sura.srtVersets);
+  revWordCues  = parseSRT(sura.srtMots);
+  revVerses    = revVerseCues.map(c => c.text.split(/\n/).filter(l => !/-->/.test(l) && !/^\d+$/.test(l.trim())).join(" ").trim());
+
+  // Charger l'audio pour la révision
+  const p = G("audio-player");
+  p.src = revAudioUrl; p._loadedUrl = revAudioUrl; p.load();
+
+  showRevPhaseLabel("مراجعة " + sura.nom + " — استمع للآيات");
+
+  // Afficher les cards
+  G("card-listen").classList.remove("hidden");
+  G("card-recite").classList.add("hidden");
+  G("card-result").classList.add("hidden");
+  buildRevProgressTrack();
+
+  revListenCurrentVerse();
+}
+
+function showRevPhaseLabel(txt) {
+  const el = G("review-phase-label");
+  el.textContent = txt;
+  el.style.display = "block";
+}
+
+function buildRevProgressTrack() {
+  const track = G("progress-track"); track.innerHTML = "";
+  revVerses.forEach((_, i) => {
+    const d = document.createElement("div");
+    d.className = "pt-step"; d.id = "pt-" + i;
+    track.appendChild(d);
+  });
+}
+
+/* ── Phase 1 : écoute successive de chaque verset (1 fois) ── */
+function revListenCurrentVerse() {
+  revPhase = "listen";
+  const vc = revVerseCues[revVerseIdx];
+  if (!vc) { revVerseIdx++; if (revVerseIdx < revVerses.length) revListenCurrentVerse(); else revStartExamSingle(0); return; }
+
+  window._activeWindow = { start: vc.start, end: vc.end };
+  window._activeCues   = revWordCues.filter(c => c.start >= vc.start - 0.1 && c.end <= vc.end + 0.1);
+
+  G("phase-label").textContent = "مراجعة — الآية " + (revVerseIdx+1) + " من " + revVerses.length;
+  G("ayah-full-text").textContent = revVerses[revVerseIdx];
+  G("ayah-full-box").classList.remove("hidden");
+  G("rep-cur").textContent = ""; G("rep-of").textContent = ""; G("rep-state").textContent = "جارٍ تشغيل الآية...";
+  G("prog-fill").style.width = "0%"; G("prog-pct").textContent = "";
+
+  // Mark current in track
+  revVerses.forEach((_, i) => {
+    const d = G("pt-" + i);
+    if (d) d.className = "pt-step" + (i < revVerseIdx ? " done" : i === revVerseIdx ? " current" : "");
+  });
+
+  // Mettre le bouton start en mode "bloqué" pendant l'écoute
+  G("btn-listen-start").classList.add("hidden");
+  G("btn-listen-stop").classList.add("hidden");
+
+  playing = true; stopped = false;
+  const p = G("audio-player");
+  if (p._loadedUrl !== revAudioUrl) { p.src = revAudioUrl; p._loadedUrl = revAudioUrl; p.load(); }
+  playOnce(() => {
+    revVerseIdx++;
+    if (revVerseIdx < revVerses.length) {
+      setTimeout(revListenCurrentVerse, 600);
+    } else {
+      // Toutes les écoutes finies → passer à l'examen verset par verset
+      setTimeout(() => revStartExamSingle(0), 800);
+    }
+  });
+}
+
+/* ── Phase 2 : examen verset par verset ── */
+let revExamVerseIdx = 0;
+
+function revStartExamSingle(vi) {
+  revPhase = "exam_single";
+  revExamVerseIdx = vi;
+
+  const vc = revVerseCues[vi];
+  if (vc) {
+    window._activeWindow = { start: vc.start, end: vc.end };
+    window._activeCues   = revWordCues.filter(c => c.start >= vc.start - 0.1 && c.end <= vc.end + 0.1);
+  }
+
+  showRevPhaseLabel("مراجعة " + BANQUE_SOURATES[revSuraIdx].nom + " — امتحان كل آية");
+
+  // Update track
+  revVerses.forEach((_, i) => {
+    const d = G("pt-" + i);
+    if (d) d.className = "pt-step" + (i < vi ? " done" : i === vi ? " exam" : "");
+  });
+
+  finalTx = ""; lastFullTx = "";
+  G("phase-label-recite").textContent = "امتحان الآية " + (vi+1);
+  G("exam-ayahs-text").textContent = revVerses[vi];
+  G("exam-ayahs-box").classList.remove("hidden");
+  G("rec-hint").textContent = "قل الآية " + (vi+1) + " بصوت واضح";
+  G("btn-rec-start").classList.remove("hidden");
+  G("btn-rec-stop").classList.add("hidden");
+  G("rec-status").textContent = "اضغط الزر وابدأ في التلاوة";
+  G("transcript").style.display = "none";
+  G("mic-ring").classList.remove("on");
+  G("card-listen").classList.add("hidden");
+  G("card-recite").classList.remove("hidden");
+  G("card-result").classList.add("hidden");
+
+  // Override btn-rec-stop pour intercepter l'évaluation en mode révision
+  window._revExamMode = "single";
+}
+
+function revEvaluateSingle() {
+  const heard = norm(finalTx);
+  const words = revVerses[revExamVerseIdx].split(/\s+/).filter(Boolean);
+  const allWords = words.map(w => {
+    const nw = norm(w);
+    const heardWords = heard.split(/\s+/);
+    const ok = heard.includes(nw) || heardWords.some(hw =>
+      hw === nw || (nw.length > 4 && (hw.startsWith(nw.slice(0,4)) || nw.startsWith(hw.slice(0,4))))
+    );
+    return { w, ok };
+  });
+  const found = allWords.filter(x => x.ok).length;
+  const score = Math.round((found / words.length) * 100);
+
+  const grid = G("word-grid"); grid.innerHTML = "";
+  allWords.forEach(({ w, ok }) => {
+    const pill = document.createElement("span");
+    pill.className = "word-pill " + (ok ? "wok" : "wmiss");
+    pill.textContent = (ok ? "✓ " : "✗ ") + w;
+    grid.appendChild(pill);
+  });
+
+  const box = G("score-box"); box.className = "score-box";
+  G("n-missing").classList.add("hidden"); G("n-extra").classList.add("hidden");
+
+  if (score >= 80) {
+    box.classList.add("ex");
+    G("score-num").textContent = score + "%";
+    G("score-lbl").textContent = "أحسنت! ✅";
+    G("score-msg").textContent = "انتقال للآية التالية...";
+    G("card-recite").classList.add("hidden");
+    G("card-result").classList.remove("hidden");
+    setTimeout(() => {
+      G("card-result").classList.add("hidden");
+      const next = revExamVerseIdx + 1;
+      if (next < revVerses.length) {
+        revStartExamSingle(next);
+      } else {
+        // Tous les versets réussis → écoute complète puis examen global
+        revPlayAllThenExamAll();
+      }
+    }, 1500);
+  } else {
+    box.classList.add("rtry");
+    G("score-num").textContent = score + "%";
+    G("score-lbl").textContent = "نحتاج مراجعة — استمع مجدداً";
+    G("score-msg").textContent = "ستسمع الآية مرة أخرى ثم تُسمِّع";
+    G("card-recite").classList.add("hidden");
+    G("card-result").classList.remove("hidden");
+    setTimeout(() => {
+      G("card-result").classList.add("hidden");
+      // Relire ce verset puis re-examiner
+      revRelistenVerse(revExamVerseIdx, () => revStartExamSingle(revExamVerseIdx));
+    }, 2000);
+  }
+}
+
+function revRelistenVerse(vi, then) {
+  const vc = revVerseCues[vi];
+  if (!vc) { then(); return; }
+  window._activeWindow = { start: vc.start, end: vc.end };
+  window._activeCues   = revWordCues.filter(c => c.start >= vc.start - 0.1 && c.end <= vc.end + 0.1);
+  G("phase-label").textContent = "إعادة الاستماع للآية " + (vi+1);
+  G("ayah-full-text").textContent = revVerses[vi];
+  G("ayah-full-box").classList.remove("hidden");
+  G("rep-state").textContent = "جارٍ الإعادة...";
+  G("btn-listen-start").classList.add("hidden");
+  G("btn-listen-stop").classList.add("hidden");
+  G("card-listen").classList.remove("hidden");
+  G("card-recite").classList.add("hidden");
+  G("card-result").classList.add("hidden");
+  playing = true; stopped = false;
+  playOnce(() => setTimeout(then, 600));
+}
+
+/* ── Phase 3 : lecture de toute la sourate (1 fois) ── */
+function revPlayAllThenExamAll() {
+  revPhase = "play_all";
+  showRevPhaseLabel("مراجعة " + BANQUE_SOURATES[revSuraIdx].nom + " — استمع للسورة كاملة");
+
+  G("phase-label").textContent = "استمع للسورة كاملة — " + BANQUE_SOURATES[revSuraIdx].nom;
+  G("ayah-full-text").textContent = revVerses.join("\n");
+  G("ayah-full-box").classList.remove("hidden");
+  G("rep-state").textContent = "جارٍ التشغيل...";
+  G("btn-listen-start").classList.add("hidden");
+  G("btn-listen-stop").classList.add("hidden");
+  G("card-listen").classList.remove("hidden");
+  G("card-recite").classList.add("hidden");
+  G("card-result").classList.add("hidden");
+
+  revVerses.forEach((_, i) => { const d = G("pt-"+i); if(d) d.className="pt-step current"; });
+
+  // Jouer tous les versets successivement
+  const indices = revVerses.map((_, i) => i);
+  function playNext() {
+    if (!indices.length) { setTimeout(revStartExamAll, 800); return; }
+    const vi = indices.shift();
+    const vc = revVerseCues[vi];
+    if (!vc) { playNext(); return; }
+    window._activeWindow = { start: vc.start, end: vc.end };
+    window._activeCues   = revWordCues.filter(c => c.start >= vc.start - 0.1 && c.end <= vc.end + 0.1);
+    G("audio-player").playbackRate = 1.0;
+    playing = true; stopped = false;
+    playOnce(playNext);
+  }
+  playNext();
+}
+
+/* ── Phase 4 : examen de toute la sourate ensemble ── */
+function revStartExamAll() {
+  revPhase = "exam_all";
+  showRevPhaseLabel("مراجعة " + BANQUE_SOURATES[revSuraIdx].nom + " — امتحان السورة كاملة");
+
+  finalTx = ""; lastFullTx = "";
+  G("phase-label-recite").textContent = "امتحان السورة كاملة — " + BANQUE_SOURATES[revSuraIdx].nom;
+  G("exam-ayahs-text").textContent = revVerses.join("\n");
+  G("exam-ayahs-box").classList.remove("hidden");
+  G("rec-hint").textContent = "اقرأ السورة كاملة بصوت واضح";
+  G("btn-rec-start").classList.remove("hidden");
+  G("btn-rec-stop").classList.add("hidden");
+  G("rec-status").textContent = "اضغط الزر وابدأ في التلاوة";
+  G("transcript").style.display = "none";
+  G("mic-ring").classList.remove("on");
+  G("card-listen").classList.add("hidden");
+  G("card-recite").classList.remove("hidden");
+  G("card-result").classList.add("hidden");
+
+  window._revExamMode = "all";
+}
+
+function revEvaluateAll() {
+  const heard = norm(finalTx);
+  const allWords = [];
+  revVerses.forEach((v, vi) => {
+    v.split(/\s+/).filter(Boolean).forEach(w => {
+      const nw = norm(w);
+      const heardWords = heard.split(/\s+/);
+      const ok = heard.includes(nw) || heardWords.some(hw =>
+        hw === nw || (nw.length > 4 && (hw.startsWith(nw.slice(0,4)) || nw.startsWith(hw.slice(0,4))))
+      );
+      allWords.push({ w, ok, vi });
+    });
+  });
+
+  const found = allWords.filter(x => x.ok).length;
+  const score = Math.round((found / allWords.length) * 100);
+
+  const grid = G("word-grid"); grid.innerHTML = "";
+  allWords.forEach(({ w, ok }) => {
+    const pill = document.createElement("span");
+    pill.className = "word-pill " + (ok ? "wok" : "wmiss");
+    pill.textContent = (ok ? "✓ " : "✗ ") + w;
+    grid.appendChild(pill);
+  });
+
+  const box = G("score-box"); box.className = "score-box";
+  G("n-missing").classList.add("hidden"); G("n-extra").classList.add("hidden");
+  G("card-recite").classList.add("hidden");
+  G("card-result").classList.remove("hidden");
+
+  if (score >= 70) {
+    box.classList.add("ex");
+    G("score-num").textContent = score + "%";
+    G("score-lbl").textContent = "ممتاز! أتقنت السورة! 🌟";
+    G("score-msg").textContent = "المراجعة مكتملة — أحسنت!";
+    setTimeout(() => {
+      G("card-result").classList.add("hidden");
+      G("review-phase-label").style.display = "none";
+      markReviewDone(revSuraIdx);
+      revMode = false;
+      window._revExamMode = null;
+      // Vérifier s'il y a d'autres révisions dues
+      if (!checkAndProposeRevision()) {
+        startNormalSession();
+      }
+    }, 2500);
+  } else {
+    box.classList.add("rtry");
+    G("score-num").textContent = score + "%";
+    G("score-lbl").textContent = "لا بأس — نعيد الاستماع مرة أخرى";
+    G("score-msg").textContent = "ستستمع للسورة كاملة مجدداً ثم تُسمِّع";
+    setTimeout(() => {
+      G("card-result").classList.add("hidden");
+      revPlayAllThenExamAll();
+    }, 2500);
+  }
+}
+
+/* ── Intercepter btn-rec-stop pour rediriger en mode révision ── */
+// On monkey-patch l'évaluation selon le mode actif
+const _origEvaluate = evaluate;
+window._revExamMode = null;
+
+// Override btn-rec-stop click to route to rev evaluators
+G("btn-rec-stop").addEventListener("click", function revRecStop_handler() {
+  // This is a second listener; the original one calls evaluate()
+  // We don't use this approach — instead we override evaluate() below
+}, false);
+
+// Override evaluate to intercept review mode
 function evaluate() {
   const heard = norm(finalTx);
+  if (revMode && window._revExamMode === "single") {
+    revEvaluateSingle(); return;
+  }
+  if (revMode && window._revExamMode === "all") {
+    revEvaluateAll(); return;
+  }
+  // ── Original evaluate logic ──
   const grid = G("word-grid"); grid.innerHTML = "";
   const from = examSolo ? curVerseIdx : 0;
   const to   = curVerseIdx;
@@ -1093,84 +2153,32 @@ function evaluate() {
       const allIndices = [];
       const from = examSolo ? curVerseIdx : 0;
       for (let i = from; i <= curVerseIdx; i++) allIndices.push(i);
+      // Stocker les mots manquants pour les répéter 3 fois pendant le retry
+      retryMissingWords = allWords.filter(x => !x.ok).map(x => x.w);
       beginRetryListenPhase(allIndices);
     }, 3000);
   }
 }
 
-function playGroupOnce(then) {
-  const indices = [];
-  for (let i = 0; i <= curVerseIdx; i++) indices.push(i);
-  function playNext() {
-    if (!indices.length) { G("audio-player").playbackRate = 1.0; then(); return; }
-    const vi = indices.shift();
-    const vc = verseCues[vi];
-    if (!vc) { playNext(); return; }
-    window._activeWindow = { start: vc.start, end: vc.end };
-    window._activeCues = wordCues.filter(c => c.start >= vc.start - 0.1 && c.end <= vc.end + 0.1);
-    G("audio-player").playbackRate = 1.0;
-    playOnce(playNext);
+/* ── startNormalSession : lance la session habituelle d'apprentissage ── */
+function startNormalSession() {
+  revMode = false;
+  window._revExamMode = null;
+  G("review-phase-label").style.display = "none";
+
+  // Vérifier si des révisions bloquent les nouvelles sourates
+  const due = getDueReviews();
+  if (due.length > 0) {
+    // Des révisions dues → ne pas avancer, proposer la révision
+    checkAndProposeRevision();
+    return;
   }
-  playNext();
+
+  startSession();
 }
 
-function advanceAfterPass() {
-  if (examSolo) {
-    if (curVerseIdx === 0) {
-      const next = curVerseIdx + 1;
-      if (next >= verses.length) { showDone(); return; }
-      curVerseIdx = next;
-      examSolo = true;
-      beginListenPhase();
-    } else {
-      playGroupOnce(() => {
-        examSolo = false;
-        beginExamPhase();
-      });
-    }
-  } else {
-    const next = curVerseIdx + 1;
-    if (next >= verses.length) { showDone(); return; }
-    curVerseIdx = next;
-    examSolo = true;
-    beginListenPhase();
-  }
-}
+/* ── Hook Firebase pour sync "acquired" ── */
 
-function showDone() {
-  localStorage.removeItem(kidKey("state"));
-  G("card-result").classList.remove("hidden");
-  const box = G("score-box"); box.className = "score-box ex";
-  const nextIdx = curSuraIdx + 1;
-  if (nextIdx < BANQUE_SOURATES.length) {
-    G("score-num").textContent = "🎉";
-    G("score-lbl").textContent = "أحسنت! حفظت " + BANQUE_SOURATES[curSuraIdx].nom + "!";
-    G("score-msg").textContent = "الانتقال إلى " + BANQUE_SOURATES[nextIdx].nom + "...";
-    G("n-missing").classList.add("hidden");
-    G("n-extra").classList.add("hidden");
-    G("card-result").scrollIntoView({ behavior:"smooth", block:"start" });
-    setTimeout(() => {
-      curSuraIdx = nextIdx;
-      localStorage.setItem(kidKey("sura"), curSuraIdx);
-      chargerSourate(curSuraIdx);
-      curVerseIdx=0; examUpTo=0; phase="idle"; repCur=0; repTotal=10;
-      playing=false; stopped=false; finalTx=""; lastFullTx=""; examSolo=true;
-      G("card-result").classList.add("hidden");
-      const p = document.querySelector("audio");
-      p.src = audioUrl; p._loadedUrl = audioUrl; p.load();
-      buildProgressTrack();
-      beginListenPhase();
-    }, 3000);
-  } else {
-    G("score-num").textContent = "🏆";
-    G("score-lbl").textContent = "أحسنت! حفظت جميع السور!";
-    G("score-msg").textContent = "لقد أتقنت البرنامج كاملاً!";
-    G("n-missing").classList.add("hidden");
-    G("n-extra").classList.add("hidden");
-    G("card-result").scrollIntoView({ behavior:"smooth", block:"start" });
-    localStorage.removeItem(kidKey("sura"));
-  }
-}
 
 G("btn-restart").addEventListener("click", () => {
   localStorage.removeItem(kidKey("state"));
@@ -1189,23 +2197,42 @@ G("btn-restart").addEventListener("click", () => {
 /* ─── SÉLECTION DE L'ENFANT ─── */
 document.querySelectorAll(".kid-btn").forEach(btn => {
   btn.addEventListener("click", () => {
-    currentKid = btn.dataset.kid;
-    G("kid-select").classList.add("hidden");
-    G("current-word").textContent = "⏳";
-    syncFromFirebase(() => {
+    try {
+      currentKid = btn.dataset.kid;
+      G("kid-select").classList.add("hidden");
+      G("current-word").textContent = "⏳";
       curSuraIdx = parseInt(localStorage.getItem(kidKey("sura")) || "0");
       if (curSuraIdx >= BANQUE_SOURATES.length) curSuraIdx = 0;
       chargerSourate(curSuraIdx);
       G("btn-listen-start").disabled = false;
-      requestPermissionAndStart();
-    });
+      G("current-word").textContent = "—";
+      syncFromFirebase(() => {});
+      checkRevisionOrStart();
+    } catch(err) {
+      G("current-word").textContent = "⚠️";
+      alert("خطأ: " + err.message);
+    }
   });
 });
 
 function requestPermissionAndStart() {
-  navigator.mediaDevices.getUserMedia({ audio: true })
-    .then(stream => { stream.getTracks().forEach(t => t.stop()); startSession(); })
-    .catch(() => startSession());
+  // Démarrer l'app immédiatement, demander le micro en arrière-plan
+  checkRevisionOrStart();
+  // Demande de permission micro en arrière-plan (ne bloque pas le démarrage)
+  try {
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(stream => { stream.getTracks().forEach(t => t.stop()); })
+        .catch(() => {});
+    }
+  } catch(e) {}
+}
+
+function checkRevisionOrStart() {
+  // Proposer une révision si due, sinon lancer la session normale
+  if (!checkAndProposeRevision()) {
+    startSession();
+  }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1227,7 +2254,7 @@ document.addEventListener('DOMContentLoaded', () => {
             G("btn-listen-start").disabled = false;
             G("btn-listen-start").classList.remove("hidden");
             G("btn-listen-stop").classList.add("hidden");
-            G("btn-listen-start").textContent = "▶ متابعة الاستماع";
+            G("btn-listen-start").textContent = "▶";
             G("rep-state").textContent = "متوقف — اضغط للمتابعة";
           }
         }, 300);
