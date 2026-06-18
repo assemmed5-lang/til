@@ -1269,7 +1269,11 @@ function tick() {
     const pauseDur = (segDur / rate) * 1.5;
 
     const SRBrowser = window.SpeechRecognition || window.webkitSpeechRecognition;
-    window._pauseRecog = null;
+    // Annuler le cycle précédent proprement avant d'en démarrer un nouveau
+    if (window._pauseTO) { clearTimeout(window._pauseTO); window._pauseTO = null; }
+    window._pauseEnded = true;
+    if (window._pauseRecog) { try { window._pauseRecog.stop(); } catch(e){} window._pauseRecog = null; }
+    window._pauseEnded = false;
     window._pauseSilencePending = false;
     G("transcript").textContent = "";
     G("transcript").style.display = "none";
@@ -1357,7 +1361,15 @@ function tick() {
 G("btn-listen-start").addEventListener("click", () => {
   if (phase === "listen") {
     G("btn-listen-start").disabled = true;
-    startReps();
+    if (stopped && repCur > 0) {
+      // Reprise après pause silence — ne pas remettre repCur à 0
+      playing = true; stopped = false;
+      G("btn-listen-start").classList.add("hidden");
+      G("btn-listen-stop").classList.remove("hidden");
+      tick();
+    } else {
+      startReps();
+    }
   } else if (phase === "retry_listen") {
     G("btn-listen-start").disabled = true;
     startRetryWordByWord();
