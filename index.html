@@ -302,8 +302,6 @@ let audioB64   = null;
 let activeBankIdx = -1;
 let curVerseIdx=0, examUpTo=0, phase="idle", retryMissing=[], retryMissingWords=[];
 let playing=false, stopped=false, repCur=0, repTotal=10, recog=null, finalTx="", lastFullTx="";
-const GROQ_API_KEY = "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"; // → https://console.groq.com/keys
-let _mediaRecorder = null, _audioChunks = [];
 
 /* ══════════════════════════════════════════════
    BANQUE DES SOURATES
@@ -926,7 +924,7 @@ function beginListenPhase(keepRep) {
   phase = "listen";
   saveState();
   updateProgressTrack();
-  const reps = 1 + Math.max(0, curVerseIdx - 1);
+  const reps = 10 + Math.max(0, curVerseIdx - 1);
   repTotal = reps;
   if (!keepRep) repCur = 0;
   G("btn-listen-start").disabled = false;
@@ -1130,6 +1128,98 @@ function startReps() {
   tick();
 }
 
+/* ── Retry mot par mot : chaque mot joué 1 fois, les mots ratés 3 fois ── */
+function startRetryWordByWord() {
+  playing = true; stopped = false;
+  G("btn-listen-start").classList.add("hidden");
+  G("btn-listen-stop").classList.remove("hidden");
+
+  // Construire la séquence : tous les mots des versets en retry
+  // Pour chaque mot : 1 fois si ok, 3 fois si raté
+  const badWords = new Set(retryMissingWords.map(w => norm(w)));
+
+  // Collecter tous les wordCues des versets concernés
+  const verseWordCues = [];
+  retryMissing.forEach(vi => {
+    const vc = verseCues[vi];
+    if (!vc) return;
+    const wc = wordCues.filter(c => c.start >= vc.start - 0.1 && c.end <= vc.end + 0.1);
+    wc.forEach(c => verseWordCues.push({ cue: c, missed: badWords.has(norm(c.text)) }));
+  });
+
+  if (verseWordCues.length === 0) {
+    // Fallback : jouer le verset entier normalement
+    startReps(); return;
+  }
+
+  // Répéter la séquence repTotal fois (2 par défaut)
+  let repsDone = 0;
+
+  function doOneRep() {
+    if (stopped) { playing = false; return; }
+    if (repsDone >= repTotal) {
+      // Fini — passer à l'examen
+      playing = false;
+      G("btn-listen-stop").classList.add("hidden");
+      G("rep-state").textContent = "✅ انتهى الاستماع! جاري الانتقال للتسميع...";
+      setTimeout(() => {
+        G("audio-player").playbackRate = 1.0;
+        beginExamPhase();
+      }, 1500);
+      return;
+    }
+
+    G("rep-state").textContent = "▶ التكرار رقم " + (repsDone + 1) + " من " + repTotal + "...";
+    repCur = repsDone;
+    G("rep-cur").textContent = repsDone;
+    const pct = Math.round((repsDone / repTotal) * 100);
+    G("prog-fill").style.width = pct + "%";
+    G("prog-pct").textContent = pct + "%";
+
+    // Jouer tous les mots de cette répétition
+    const seq = [];
+    verseWordCues.forEach(({ cue, missed }) => {
+      const times = missed ? 3 : 1;
+      for (let i = 0; i < times; i++) seq.push({ cue, missed, rep: i + 1, total: times });
+    });
+
+    function playSeq() {
+      if (stopped) { playing = false; return; }
+      if (seq.length === 0) {
+        repsDone++;
+        repCur = repsDone;
+        G("rep-cur").textContent = repsDone;
+        const pct2 = Math.round((repsDone / repTotal) * 100);
+        G("prog-fill").style.width = pct2 + "%";
+        G("prog-pct").textContent = pct2 + "%";
+        setTimeout(doOneRep, 400);
+        return;
+      }
+      const { cue, missed, rep, total } = seq.shift();
+
+      // Affichage : rouge + compteur si mot raté
+      setWord(cue.text);
+      G("current-word").style.color = missed ? "#E24B4A" : "#f5e6c0";
+      if (missed && total > 1) {
+        G("rep-state").textContent = "⚠️ " + cue.text + "  (" + rep + "/" + total + ")";
+      }
+
+      window._activeWindow = { start: cue.start, end: cue.end + 0.05 };
+      window._activeCues   = [cue];
+      G("audio-player").playbackRate = missed ? 0.8 : 1.0;
+
+      playOnce(() => {
+        G("current-word").style.color = "";
+        setTimeout(playSeq, missed ? 250 : 120);
+      });
+    }
+    playSeq();
+  }
+
+  doOneRep();
+}
+
+let examSolo = true;
 
 /* ─── helper: stop any active pause recognizer ─── */
 function stopPauseRecog() {
@@ -1146,6 +1236,42 @@ function stopPauseRecog() {
     try { window._pauseRecog.stop(); } catch(e) {}
     window._pauseRecog = null;
   }
+}
+
+
+/* ── Jouer les mots manquants N fois après chaque répétition retry ── */
+function playMissingWords(words, times, onDone) {
+  if (!words || words.length === 0 || times <= 0) { onDone(); return; }
+  const sequence = [];
+  for (let t = 0; t < times; t++) {
+    words.forEach(w => sequence.push(w));
+  }
+  function playNext() {
+    if (stopped || sequence.length === 0) { onDone(); return; }
+    const word = sequence.shift();
+    // Trouver le wordCue correspondant à ce mot
+    const nw = norm(word);
+    const cue = wordCues.find(c => norm(c.text) === nw) ||
+                wordCues.find(c => norm(c.text).includes(nw)) ||
+                wordCues.find(c => nw.includes(norm(c.text)));
+    if (!cue) { playNext(); return; }
+    // Afficher le mot en surbrillance rouge
+    setWord(word);
+    G("current-word").style.color = "#E24B4A";
+    const saved = window._activeWindow;
+    const savedCues = window._activeCues;
+    window._activeWindow = { start: cue.start, end: cue.end + 0.1 };
+    window._activeCues = [cue];
+    const p = G("audio-player");
+    p.playbackRate = 0.85; // légèrement ralenti pour bien entendre
+    playOnce(() => {
+      window._activeWindow = saved;
+      window._activeCues = savedCues;
+      G("current-word").style.color = "";
+      setTimeout(playNext, 300);
+    });
+  }
+  playNext();
 }
 
 function adjustWordSize(el) {
@@ -1362,32 +1488,13 @@ G("btn-listen-stop").addEventListener("click", () => {
    ══════════════════════════════════════════════ */
 async function startRecog() {
   finalTx = ""; lastFullTx = "";
-  _audioChunks = [];
-  G("rec-status").textContent = "جارٍ الاستماع...";
-  G("mic-ring").classList.add("on");
-  G("transcript").textContent = "...";
-  G("transcript").style.display = "block";
-  window._recogActive = true;
-
-  // ── Groq Whisper via MediaRecorder (priorité) ──
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const mimeType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm"
-                   : MediaRecorder.isTypeSupported("audio/mp4")  ? "audio/mp4"
-                   : "audio/ogg";
-    _mediaRecorder = new MediaRecorder(stream, { mimeType });
-    _mediaRecorder.ondataavailable = e => { if (e.data.size > 0) _audioChunks.push(e.data); };
-    _mediaRecorder.start(200);
-    return; // succès — pas besoin du fallback
-  } catch(e) {
-    console.warn("MediaRecorder indisponible, fallback SR:", e);
-  }
 
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
   if (SR) {
     function restartRecog() {
       G("mic-ring").classList.remove("on");
+      if (!finalTx.trim() && lastFullTx) finalTx = lastFullTx;
       if (!window._recogActive) return;
       setTimeout(() => {
         try {
@@ -1399,14 +1506,12 @@ async function startRecog() {
           recog.onstart = () => { G("mic-ring").classList.add("on"); };
           recog.onresult = e => {
             let interim = "";
-            let srFinal = "";
             for (let i = e.resultIndex; i < e.results.length; i++) {
-              if (e.results[i].isFinal) srFinal += e.results[i][0].transcript + " ";
+              if (e.results[i].isFinal) finalTx += e.results[i][0].transcript + " ";
               else interim += e.results[i][0].transcript;
             }
-            // SR → affichage uniquement, pas finalTx (réservé à Groq)
-            const display = (srFinal + interim).trim();
-            if (display.length >= lastFullTx.length) lastFullTx = display;
+            const candidate = (finalTx + interim).trim();
+            if (candidate.length >= lastFullTx.length) lastFullTx = candidate;
             G("transcript").textContent = lastFullTx || "...";
             setWord(lastFullTx.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || "—");
           };
@@ -1432,14 +1537,12 @@ async function startRecog() {
     };
     recog.onresult = e => {
       let interim = "";
-      let srFinal = "";
       for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) srFinal += e.results[i][0].transcript + " ";
+        if (e.results[i].isFinal) finalTx += e.results[i][0].transcript + " ";
         else interim += e.results[i][0].transcript;
       }
-      // SR → affichage uniquement, pas finalTx (réservé à Groq)
-      const display = (srFinal + interim).trim();
-      if (display.length >= lastFullTx.length) lastFullTx = display;
+      const candidate = (finalTx + interim).trim();
+      if (candidate.length >= lastFullTx.length) lastFullTx = candidate;
       G("transcript").textContent = lastFullTx || "...";
       setWord(lastFullTx.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || "—");
     };
@@ -1478,8 +1581,7 @@ async function startRecog() {
     try {
       window._srListener = await SRPlugin.addListener("partialResults", data => {
         const txt = (data.matches && data.matches[0]) ? data.matches[0] : "";
-        // SR → affichage uniquement, pas finalTx (réservé à Groq)
-        if (txt.length >= lastFullTx.length) { lastFullTx = txt; }
+        if (txt.length >= lastFullTx.length) { lastFullTx = txt; finalTx = txt; }
         G("transcript").textContent = lastFullTx || "...";
         G("transcript").style.display = "block";
         setWord(lastFullTx.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || "—");
@@ -1502,58 +1604,17 @@ G("btn-rec-start").addEventListener("click", () => {
 
 G("btn-rec-stop").addEventListener("click", () => {
   window._recogActive = false;
-  G("mic-ring").classList.remove("on");
-  G("btn-rec-stop").classList.add("hidden");
-  G("btn-rec-start").classList.add("hidden");
-  G("rec-status").textContent = "جارٍ التحليل...";
-
-  // ── Groq Whisper ──
-  if (_mediaRecorder && _mediaRecorder.state !== "inactive") {
-    _mediaRecorder.onstop = async () => {
-      // Arrêter les pistes micro
-      _mediaRecorder.stream.getTracks().forEach(t => t.stop());
-      _mediaRecorder = null;
-      const blob = new Blob(_audioChunks, { type: _audioChunks[0]?.type || "audio/webm" });
-      _audioChunks = [];
-      try {
-        G("rec-status").textContent = "⏳ Whisper يحلل...";
-        const fd = new FormData();
-        fd.append("file", blob, "rec.webm");
-        fd.append("model", "whisper-large-v3");
-        fd.append("language", "ar");
-        fd.append("response_format", "text");
-        const resp = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
-          method: "POST",
-          headers: { "Authorization": "Bearer " + GROQ_API_KEY },
-          body: fd
-        });
-        if (!resp.ok) throw new Error("Groq " + resp.status);
-        finalTx = (await resp.text()).trim();
-        lastFullTx = finalTx;
-        G("transcript").textContent = finalTx;
-        G("transcript").style.display = "block";
-        G("rec-status").textContent = "✅ تم التحليل";
-        evaluate();
-      } catch(err) {
-        G("rec-status").textContent = "⚠️ Groq: " + err.message + " — تقييم بالنص المعروض";
-        // Groq a échoué : utiliser le texte SR affiché comme dernier recours
-        finalTx = lastFullTx;
-        setTimeout(() => evaluate(), 800);
-      }
-    };
-    _mediaRecorder.stop();
-    return;
-  }
-
-  // Fallback webkitSpeechRecognition
   if (recog) { try { recog.stop(); } catch(e) {} recog = null; }
   const SRPlugin = window.Capacitor?.Plugins?.SpeechRecognition;
   if (SRPlugin) {
     try { SRPlugin.stop(); } catch(e) {}
     if (window._srListener) { try { window._srListener.remove(); } catch(e){} window._srListener = null; }
   }
-  // Pas de Groq disponible : SR devient la source de finalTx
-  finalTx = lastFullTx;
+  G("mic-ring").classList.remove("on");
+  G("btn-rec-stop").classList.add("hidden");
+  G("btn-rec-start").classList.add("hidden");
+  G("rec-status").textContent = "جارٍ التحليل...";
+  if (!finalTx.trim() && lastFullTx) finalTx = lastFullTx;
   setTimeout(() => evaluate(), 1500);
 });
 function playGroupOnce(then) {
