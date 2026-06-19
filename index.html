@@ -101,6 +101,32 @@ audio { position:fixed; bottom:-100px; left:-100px; width:1px; height:1px; }
   letter-spacing: 0.02em;
 }
 .kid-btn:active { background: var(--green-dark); }
+
+/* ── Barres anti-stress ── */
+#bar-surah-wrap {
+  width: 90%; max-width: 360px; margin: 0 auto 16px;
+  text-align: center; font-size: 0.78rem; color: #aaa;
+  font-family: inherit;
+}
+#bar-rep-wrap {
+  width: 90%; max-width: 360px; margin: 8px auto 4px;
+  text-align: center; font-size: 0.78rem; color: #aaa;
+  font-family: inherit;
+}
+#bar-surah-track, #bar-rep-track {
+  height: 10px; border-radius: 6px; overflow: hidden; margin: 4px 0;
+}
+#bar-surah-track { background: #1a2a3a; }
+#bar-rep-track   { background: #2a2a2a; }
+#bar-surah-fill {
+  height: 100%; border-radius: 6px;
+  background: #3a8fd1; transition: width 0.6s ease;
+}
+#bar-rep-fill {
+  height: 100%; border-radius: 6px;
+  background: #888; transition: width 0.4s ease;
+}
+#bar-surah-pct, #bar-rep-pct { font-size: 0.72rem; color: #777; }
 </style>
 </head>
 <body>
@@ -117,6 +143,9 @@ audio { position:fixed; bottom:-100px; left:-100px; width:1px; height:1px; }
   <button class="rev-btn" style="background:rgba(255,255,255,0.1);color:#aaa;margin-top:0" id="btn-skip-review">تخطّ الآن (لن تُحفظ)</button>
 </div>
 <div id="review-phase-label"></div>
+<div id="bar-surah-wrap" style="display:none">
+  <div id="bar-surah-track"><div id="bar-surah-fill"></div></div>
+</div>
 <div id="screen">
   <div id="current-word">—</div>
 </div>
@@ -132,6 +161,9 @@ audio { position:fixed; bottom:-100px; left:-100px; width:1px; height:1px; }
 <div id="card-setup" style="display:none"></div>
 <audio id="audio-player"></audio>
 <div id="card-listen" class="hidden">
+  <div id="bar-rep-wrap" style="display:none">
+    <div id="bar-rep-track"><div id="bar-rep-fill"></div></div>
+  </div>
   <div id="phase-label"></div>
   <div id="progress-track"></div>
   <div id="ayah-full-box" class="hidden"><div id="ayah-full-text"></div></div>
@@ -847,8 +879,10 @@ function startSession() {
   G("card-recite").classList.add("hidden");
   G("card-result").classList.add("hidden");
   buildProgressTrack();
+  G("bar-surah-wrap").style.display = "none"; // cachée sur kid-select
   if (loadState()) {
-    if (phase === "listen" || phase === "retry_listen") beginListenPhase();
+    updateBarSurah(); // visible dès le début de la session
+    if (phase === "listen" || phase === "retry_listen") beginListenPhase(true); // reprise — garder repCur
     else if (phase === "exam") beginExamPhase();
     else { curVerseIdx=0; examUpTo=0; phase="idle"; retryMissing=[]; repCur=0; repTotal=10; beginListenPhase(); }
   } else {
@@ -876,12 +910,13 @@ function updateProgressTrack() {
   });
 }
 
-function beginListenPhase() {
+function beginListenPhase(keepRep) {
   phase = "listen";
   saveState();
   updateProgressTrack();
-  const reps = 10 + Math.max(0, curVerseIdx - 1);
-  repTotal = reps; repCur = 0;
+  const reps = 4 + Math.max(0, curVerseIdx - 1);
+  repTotal = reps;
+  if (!keepRep) repCur = 0;
   G("btn-listen-start").disabled = false;
   playing = false; stopped = false;
   const vText = verses[curVerseIdx];
@@ -889,9 +924,9 @@ function beginListenPhase() {
   G("ayah-full-text").textContent = vText;
   G("ayah-full-box").classList.remove("hidden");
   G("attempt-badge").textContent = "المحاولة الأولى";
-  G("rep-cur").textContent = "0";
-  G("prog-fill").style.width = "0%";
-  G("prog-pct").textContent = "0%";
+  G("rep-cur").textContent = repCur;
+  G("prog-fill").style.width = Math.round((repCur/reps)*100) + "%";
+  G("prog-pct").textContent = Math.round((repCur/reps)*100) + "%";
   G("rep-of").innerHTML = "من أصل <strong>" + reps + "</strong> تكرارات";
   G("rep-state").textContent = "جاهز للبدء";
   G("btn-listen-start").textContent = "▶";
@@ -902,6 +937,8 @@ function beginListenPhase() {
   G("card-listen").classList.remove("hidden");
   G("card-recite").classList.add("hidden");
   G("card-result").classList.add("hidden");
+  G("kid-select").classList.add("hidden");
+  updateBarSurah();
   G("card-listen").scrollIntoView({ behavior:"smooth", block:"start" });
   const vc = verseCues[curVerseIdx];
   if (vc) {
@@ -969,6 +1006,9 @@ function beginExamPhase() {
   G("rec-hint").textContent = examSolo
     ? "قل الآية " + (curVerseIdx + 1) + " بصوت واضح"
     : "قل الآيات من 1 إلى " + (curVerseIdx + 1) + " بصوت واضح";
+  G("btn-listen-start").classList.add("hidden");
+  G("btn-listen-stop").classList.add("hidden");
+  G("bar-rep-wrap").style.display = "none";
   G("btn-rec-start").classList.remove("hidden");
   G("btn-rec-stop").classList.add("hidden");
   G("rec-status").textContent = "اضغط الزر وابدأ في التلاوة";
@@ -1074,6 +1114,7 @@ function startReps() {
   G("btn-listen-start").classList.add("hidden");
   G("btn-listen-stop").classList.remove("hidden");
   G("rep-of").innerHTML = "من أصل <strong>" + repTotal + "</strong> تكرارات";
+  updateBarRep();
   tick();
 }
 
@@ -1223,6 +1264,30 @@ function playMissingWords(words, times, onDone) {
   playNext();
 }
 
+function updateBarSurah() {
+  const wrap = G("bar-surah-wrap");
+  if (!wrap) return;
+  if (!verses || !verses.length) { wrap.style.display = "none"; return; }
+  const totalWords = wordCues.length || verses.join(" ").split(/\s+/).filter(Boolean).length;
+  // Mots appris = mots des versets déjà passés (curVerseIdx versets complétés)
+  let learnedWords = 0;
+  for (let i = 0; i < curVerseIdx; i++) {
+    if (verses[i]) learnedWords += verses[i].split(/\s+/).filter(Boolean).length;
+  }
+  const pct = totalWords ? Math.round((learnedWords / totalWords) * 100) : 0;
+  G("bar-surah-fill").style.width = pct + "%";
+  wrap.style.display = "block";
+}
+
+function updateBarRep() {
+  const wrap = G("bar-rep-wrap");
+  if (!wrap) return;
+  if (phase !== "listen") { wrap.style.display = "none"; return; }
+  const pct = repTotal ? Math.round((repCur / repTotal) * 100) : 0;
+  G("bar-rep-fill").style.width = pct + "%";
+  wrap.style.display = "block";
+}
+
 function tick() {
   if (stopped) { playing = false; return; }
   if (repCur >= repTotal) {
@@ -1236,7 +1301,7 @@ function tick() {
       }
       const oldRepTotal = repTotal;
       const oldRepCur = repCur;
-      repTotal = 1; repCur = 0;
+      repTotal = 1; repCur = 5; // forcer vitesse normale pour la lecture finale
       playOnce(() => {
         repTotal = oldRepTotal;
         repCur = oldRepCur;
@@ -1263,6 +1328,7 @@ function tick() {
     const pct = Math.round((repCur / repTotal) * 100);
     G("prog-fill").style.width = pct + "%";
     G("prog-pct").textContent = pct + "%";
+    updateBarRep();
     const win = window._activeWindow;
     const segDur = win ? Math.max((win.end - win.start) * 1000, 600) : 600;
     const rate = (phase === "listen") ? G("audio-player").playbackRate : 1.0;
@@ -1545,6 +1611,7 @@ function playGroupOnce(then) {
 }
 
 function advanceAfterPass() {
+  updateBarSurah();
   if (examSolo) {
     if (curVerseIdx === 0) {
       const next = curVerseIdx + 1;
@@ -2211,7 +2278,6 @@ document.querySelectorAll(".kid-btn").forEach(btn => {
   btn.addEventListener("click", () => {
     try {
       currentKid = btn.dataset.kid;
-      G("kid-select").classList.add("hidden");
       G("current-word").textContent = "⏳";
       curSuraIdx = parseInt(localStorage.getItem(kidKey("sura")) || "0");
       if (curSuraIdx >= BANQUE_SOURATES.length) curSuraIdx = 0;
