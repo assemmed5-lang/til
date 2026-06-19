@@ -197,6 +197,40 @@ function setWord(text) {
   el.style.fontSize = size + "vw";
 }
 
+/* Affiche le texte complet du/des versets avec mots ratés en rouge */
+function showVerseWithMisses(verseIndices, heardNorm) {
+  const el = G("current-word");
+  el.innerHTML = "";
+  el.style.color = "";
+
+  // Calculer taille adaptée selon nombre de mots total
+  const totalWords = verseIndices.reduce((acc, vi) => {
+    return acc + (verses[vi] ? verses[vi].split(/\s+/).filter(Boolean).length : 0);
+  }, 0);
+  const fontSize = totalWords <= 4 ? "7vw" : totalWords <= 8 ? "5.5vw" : totalWords <= 14 ? "4.5vw" : "3.8vw";
+  el.style.fontSize = fontSize;
+  el.style.lineHeight = "1.7";
+
+  verseIndices.forEach((vi, idx) => {
+    // Chercher dans verses[] OU revVerses[] selon le mode actif
+    const verseList = (revMode && revVerses.length) ? revVerses : verses;
+    if (!verseList[vi]) return;
+    const words = verseList[vi].split(/\s+/).filter(Boolean);
+    if (idx > 0) { el.appendChild(document.createElement("br")); }
+    words.forEach((w, i) => {
+      const nw = norm(w);
+      const heardWords = heardNorm ? heardNorm.split(/\s+/) : [];
+      const ok = heardNorm && (heardNorm.includes(nw) || heardWords.some(hw =>
+        hw === nw || (nw.length > 4 && (hw.startsWith(nw.slice(0,4)) || nw.startsWith(hw.slice(0,4))))
+      ));
+      const span = document.createElement("span");
+      span.textContent = (i > 0 ? " " : "") + w;
+      span.style.color = ok ? "#f5e6c0" : "#E24B4A";
+      el.appendChild(span);
+    });
+  });
+}
+
 function loadBank() { try { return JSON.parse(localStorage.getItem("tilawa_bank")||"[]"); } catch { return []; } }
 function saveBank(b) { localStorage.setItem("tilawa_bank", JSON.stringify(b)); }
 
@@ -828,7 +862,21 @@ function applyStateObj(s) {
   repTotal    = s.repTotal || 10;
   examSolo    = s.examSolo || false;
   examUpTo    = s.examUpTo || 0;
-  if (typeof s.curSuraIdx === "number") curSuraIdx = s.curSuraIdx;
+  if (typeof s.curSuraIdx === "number" && s.curSuraIdx >= 0 && s.curSuraIdx < BANQUE_SOURATES.length) {
+    if (s.curSuraIdx !== curSuraIdx) {
+      curSuraIdx = s.curSuraIdx;
+      try {
+        chargerSourate(curSuraIdx);
+      } catch(e) {
+        curSuraIdx = 0;
+        chargerSourate(curSuraIdx);
+      }
+      localStorage.setItem(kidKey("sura"), curSuraIdx);
+    } else {
+      // Même sourate mais s'assurer que audioUrl est synchronisé
+      audioUrl = BANQUE_SOURATES[curSuraIdx].mp3;
+    }
+  }
   return true;
 }
 
@@ -893,7 +941,15 @@ function startSession() {
   if (loadState()) {
     updateBarSurah(); // visible dès le début de la session
     if (phase === "listen" || phase === "retry_listen") beginListenPhase(true); // reprise — garder repCur
-    else if (phase === "exam") beginExamPhase();
+    else if (phase === "exam") {
+      // Reprise après interruption en cours d'exam :
+      // Réafficher l'interface d'exam proprement, micro à l'arrêt, bouton ▶ micro dispo
+      finalTx = ""; lastFullTx = "";
+      revMode = false; window._revExamMode = null;
+      window._recogActive = false;
+      if (recog) { try { recog.stop(); } catch(e) {} recog = null; }
+      beginExamPhase();
+    }
     else { curVerseIdx=0; examUpTo=0; phase="idle"; retryMissing=[]; repCur=0; repTotal=10; beginListenPhase(); }
   } else {
     curVerseIdx=0; examUpTo=0; phase="idle"; retryMissing=[]; repCur=0; repTotal=10;
@@ -924,7 +980,7 @@ function beginListenPhase(keepRep) {
   phase = "listen";
   saveState();
   updateProgressTrack();
-  const reps = 0;
+  const reps = 0 + Math.max(0, curVerseIdx - 1);
   repTotal = reps;
   if (!keepRep) repCur = 0;
   G("btn-listen-start").disabled = false;
@@ -1245,17 +1301,16 @@ function tick() {
       window._pauseEnded = false;
 
      function _evalPauseFinal() {
-        // Se base sur ce qui est réellement affiché à l'écran (current-word / transcript)
         const displayedTxt = (G("transcript").textContent || "").trim();
         if (!displayedTxt || displayedTxt === "...") {
           document.body.style.background = "var(--bg)";
-          return false; // rien affiché → déclenche la pause
+          return false;
         }
         const hn = norm(displayedTxt);
-        const matched = expW.filter(w => hn.includes(w) || hn.split(/\s+/).some(hw => hw===w||(w.length>4&&(hw.startsWith(w.slice(0,4))||w.startsWith(hw.slice(0,4)))))).length;
-        const r = expW.length ? matched/expW.length : 0;
-        document.body.style.background = r>=0.7?"#1D9E75":r>=0.3?"#BA7517":"#E24B4A";
-        return true; // quelque chose affiché → pas de pause forcée
+        document.body.style.background = "var(--bg)";
+        // Toujours afficher le verset complet avec coloration (blanc=juste, rouge=raté)
+        showVerseWithMisses([expVi], hn);
+        return true;
       }
 
       function _startPR() {
@@ -1307,11 +1362,13 @@ function tick() {
       }
 
       setTimeout(() => {
-        setWord("—"); G("current-word").style.color="";
+        const el = G("current-word");
+        el.innerHTML = ""; el.style.fontSize = ""; el.style.color = "";
+        el.textContent = "—";
         document.body.style.background="var(--bg)";
         window._pauseSilencePending=false;
         tick();
-      }, 600);
+      }, 2200);
     }, pauseDur * 0.99);
     } // end afterVersePlay
   });
@@ -1541,9 +1598,9 @@ function showDone() {
     G("n-missing").classList.add("hidden");
     G("n-extra").classList.add("hidden");
     G("card-result").scrollIntoView({ behavior:"smooth", block:"start" });
+    curSuraIdx = nextIdx;
+    localStorage.setItem(kidKey("sura"), curSuraIdx);
     setTimeout(() => {
-      curSuraIdx = nextIdx;
-      localStorage.setItem(kidKey("sura"), curSuraIdx);
       chargerSourate(curSuraIdx);
       curVerseIdx=0; examUpTo=0; phase="idle"; repCur=0; repTotal=10;
       playing=false; stopped=false; finalTx=""; lastFullTx=""; examSolo=true;
@@ -1871,46 +1928,26 @@ function revEvaluateSingle() {
   const found = allWords.filter(x => x.ok).length;
   const score = Math.round((found / words.length) * 100);
 
-  const grid = G("word-grid"); grid.innerHTML = "";
-  allWords.forEach(({ w, ok }) => {
-    const pill = document.createElement("span");
-    pill.className = "word-pill " + (ok ? "wok" : "wmiss");
-    pill.textContent = (ok ? "✓ " : "✗ ") + w;
-    grid.appendChild(pill);
-  });
-
-  const box = G("score-box"); box.className = "score-box";
-  G("n-missing").classList.add("hidden"); G("n-extra").classList.add("hidden");
+  G("card-recite").classList.add("hidden");
+  G("card-result").classList.add("hidden");
+  G("card-listen").classList.remove("hidden");
+  showVerseWithMisses([revExamVerseIdx], heard);
 
   if (score >= 80) {
-    box.classList.add("ex");
-    G("score-num").textContent = score + "%";
-    G("score-lbl").textContent = "أحسنت! ✅";
-    G("score-msg").textContent = "انتقال للآية التالية...";
-    G("card-recite").classList.add("hidden");
-    G("card-result").classList.remove("hidden");
     setTimeout(() => {
-      G("card-result").classList.add("hidden");
+      const el = G("current-word"); el.innerHTML = ""; el.style.fontSize = ""; el.style.color = ""; el.textContent = "—";
       const next = revExamVerseIdx + 1;
       if (next < revVerses.length) {
         revStartExamSingle(next);
       } else {
-        // Tous les versets réussis → écoute complète puis examen global
         revPlayAllThenExamAll();
       }
-    }, 1500);
+    }, 2800);
   } else {
-    box.classList.add("rtry");
-    G("score-num").textContent = score + "%";
-    G("score-lbl").textContent = "نحتاج مراجعة — استمع مجدداً";
-    G("score-msg").textContent = "ستسمع الآية مرة أخرى ثم تُسمِّع";
-    G("card-recite").classList.add("hidden");
-    G("card-result").classList.remove("hidden");
     setTimeout(() => {
-      G("card-result").classList.add("hidden");
-      // Relire ce verset puis re-examiner
+      const el = G("current-word"); el.innerHTML = ""; el.style.fontSize = ""; el.style.color = ""; el.textContent = "—";
       revRelistenVerse(revExamVerseIdx, () => revStartExamSingle(revExamVerseIdx));
-    }, 2000);
+    }, 3500);
   }
 }
 
@@ -2015,7 +2052,9 @@ function revEvaluateAll() {
   const box = G("score-box"); box.className = "score-box";
   G("n-missing").classList.add("hidden"); G("n-extra").classList.add("hidden");
   G("card-recite").classList.add("hidden");
-  G("card-result").classList.remove("hidden");
+  // Afficher le verset complet avec coloration dans #current-word
+  G("card-listen").classList.remove("hidden");
+  showVerseWithMisses(revVerses.map((_, i) => i), heard);
 
   if (score >= 70) {
     box.classList.add("ex");
@@ -2023,7 +2062,7 @@ function revEvaluateAll() {
     G("score-lbl").textContent = "ممتاز! أتقنت السورة! 🌟";
     G("score-msg").textContent = "المراجعة مكتملة — أحسنت!";
     setTimeout(() => {
-      G("card-result").classList.add("hidden");
+      const el = G("current-word"); el.innerHTML = ""; el.style.fontSize = ""; el.style.color = ""; el.textContent = "—";
       G("review-phase-label").style.display = "none";
       markReviewDone(revSuraIdx);
       revMode = false;
@@ -2032,16 +2071,17 @@ function revEvaluateAll() {
       if (!checkAndProposeRevision()) {
         startNormalSession();
       }
-    }, 2500);
+    }, 3500);
   } else {
     box.classList.add("rtry");
     G("score-num").textContent = score + "%";
     G("score-lbl").textContent = "لا بأس — نعيد الاستماع مرة أخرى";
     G("score-msg").textContent = "ستستمع للسورة كاملة مجدداً ثم تُسمِّع";
     setTimeout(() => {
+      const el = G("current-word"); el.innerHTML = ""; el.style.fontSize = ""; el.style.color = ""; el.textContent = "—";
       G("card-result").classList.add("hidden");
       revPlayAllThenExamAll();
-    }, 2500);
+    }, 3500);
   }
 }
 
@@ -2095,12 +2135,10 @@ function evaluate() {
     }
   }
 
-  allWords.forEach(({ w, ok }) => {
-    const pill = document.createElement("span");
-    pill.className = "word-pill " + (ok ? "wok" : "wmiss");
-    pill.textContent = (ok ? "✓ " : "✗ ") + w;
-    grid.appendChild(pill);
-  });
+  // Toujours afficher le verset avec mots ratés en rouge dans #current-word
+  const displayVerseIndices = [];
+  for (let vi = from; vi <= to; vi++) displayVerseIndices.push(vi);
+  showVerseWithMisses(displayVerseIndices, heard);
 
   // Score = % de versets qui passent (pas % de mots global)
   const passedVerses = verseResults.filter(r => r.passed).length;
@@ -2110,34 +2148,18 @@ function evaluate() {
   const nm  = G("n-missing"), nx = G("n-extra");
   nm.classList.add("hidden"); nx.classList.add("hidden");
   if (score >= 70) {
-    box.classList.add("ex");
-    G("score-num").textContent = score + "%";
-    G("score-lbl").textContent = score === 100 ? "ممتاز! أحسنت يا بطل! 🌟" : "جيد جداً! أحسنت! 👍";
-    G("score-msg").textContent = examSolo
-      ? "أتقنت الآية " + (curVerseIdx+1) + " منفردة!"
-      : "حفظت الآيات من 1 إلى " + (curVerseIdx+1) + " بشكل صحيح!";
-    G("card-result").classList.remove("hidden");
-    G("card-result").scrollIntoView({ behavior:"smooth", block:"start" });
-    setTimeout(advanceAfterPass, 1800);
-  } else {
-    const cls = score >= 70 ? "gd" : "rtry";
-    box.classList.add(cls);
-    G("score-num").textContent = score + "%";
-    G("score-lbl").textContent = score >= 70 ? "جيد جداً — تقريباً صحيح!" : "لا بأس — نحتاج مزيداً من الاستماع!";
-    G("score-msg").textContent = "الآيات التي تحتاج مراجعة: " + failedVerses.map(i=>"الآية "+(i+1)).join("، ");
-    nm.classList.remove("hidden");
-    nm.textContent = "⚠️ الكلمات الناقصة: " + allWords.filter(x=>!x.ok).map(x=>x.w).join("  —  ");
-    nx.classList.remove("hidden");
-    nx.textContent = "ستستمع للآيات الناقصة مرتين تلقائياً، ثم تُسمِّع مجدداً.";
-    G("card-result").classList.remove("hidden");
-    G("card-result").scrollIntoView({ behavior:"smooth", block:"start" });
     setTimeout(() => {
-      G("card-result").classList.add("hidden");
+      const el = G("current-word"); el.innerHTML = ""; el.style.fontSize = ""; el.style.color = ""; el.textContent = "—";
+      advanceAfterPass();
+    }, 2800);
+  } else {
+    setTimeout(() => {
+      const el = G("current-word"); el.innerHTML = ""; el.style.fontSize = ""; el.style.color = ""; el.textContent = "—";
       const allIndices = [];
-      const from = examSolo ? curVerseIdx : 0;
-      for (let i = from; i <= curVerseIdx; i++) allIndices.push(i);
+      const from2 = examSolo ? curVerseIdx : 0;
+      for (let i = from2; i <= curVerseIdx; i++) allIndices.push(i);
       beginRetryListenPhase(allIndices);
-    }, 3000);
+    }, 3500);
   }
 }
 
@@ -2182,8 +2204,15 @@ document.querySelectorAll(".kid-btn").forEach(btn => {
       currentKid = btn.dataset.kid;
       setWord("⏳");
       curSuraIdx = parseInt(localStorage.getItem(kidKey("sura")) || "0");
-      if (curSuraIdx >= BANQUE_SOURATES.length) curSuraIdx = 0;
-      chargerSourate(curSuraIdx);
+      if (!(curSuraIdx >= 0) || curSuraIdx >= BANQUE_SOURATES.length) curSuraIdx = 0;
+      try {
+        chargerSourate(curSuraIdx);
+      } catch(e) {
+        curSuraIdx = 0;
+        localStorage.setItem(kidKey("sura"), 0);
+        localStorage.removeItem(kidKey("state"));
+        chargerSourate(curSuraIdx);
+      }
       G("btn-listen-start").disabled = false;
       setWord("—");
       syncFromFirebase(() => {});
@@ -2225,22 +2254,40 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     requestWakeLock();
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') {
-        requestWakeLock();
-        setTimeout(() => {
-          const p = G("audio-player");
-          if (p && p.paused && playing && !stopped) {
-            stopped = true;
-            G("btn-listen-start").disabled = false;
-            G("btn-listen-start").classList.remove("hidden");
-            G("btn-listen-stop").classList.add("hidden");
-            G("btn-listen-start").textContent = "▶";
-            G("rep-state").textContent = "متوقف — اضغط للمتابعة";
-          }
-        }, 300);
-      }
+      if (document.visibilityState === 'visible') requestWakeLock();
     });
   }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      setTimeout(() => {
+        const p = G("audio-player");
+        if (p && p.paused && playing && !stopped) {
+          stopped = true;
+          G("btn-listen-start").disabled = false;
+          G("btn-listen-start").classList.remove("hidden");
+          G("btn-listen-stop").classList.add("hidden");
+          G("btn-listen-start").textContent = "▶";
+          G("rep-state").textContent = "متوقف — اضغط للمتابعة";
+        }
+        if (phase === "exam" && !revMode) {
+          // Tuer proprement toute reconnaissance en cours
+          window._recogActive = false;
+          if (recog) { try { recog.stop(); } catch(e) {} recog = null; }
+          const SRPlugin = window.Capacitor?.Plugins?.SpeechRecognition;
+          if (SRPlugin) {
+            try { SRPlugin.stop(); } catch(e) {}
+            if (window._srListener) { try { window._srListener.remove(); } catch(e){} window._srListener = null; }
+          }
+          G("mic-ring").classList.remove("on");
+          finalTx = ""; lastFullTx = "";
+          // Délai pour laisser les instances précédentes se fermer proprement
+          setTimeout(() => {
+            if (phase === "exam" && !revMode) beginExamPhase();
+          }, 400);
+        }
+      }, 300);
+    }
+  });
 });
 </script>
 </body>
