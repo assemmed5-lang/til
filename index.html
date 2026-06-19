@@ -914,7 +914,7 @@ function beginListenPhase(keepRep) {
   phase = "listen";
   saveState();
   updateProgressTrack();
-  const reps = 4 + Math.max(0, curVerseIdx - 1);
+  const reps = 5 + Math.max(0, curVerseIdx - 1);
   repTotal = reps;
   if (!keepRep) repCur = 0;
   G("btn-listen-start").disabled = false;
@@ -966,16 +966,16 @@ function beginRetryListenPhase(missingVerseIdxList) {
   if (winStart === Infinity) { winStart = 0; winEnd = verseCues.length ? verseCues[verseCues.length-1].end : 60; }
   window._activeWindow = { start: winStart, end: winEnd };
   window._activeCues   = wordCues.filter(c => c.start >= winStart - 0.1 && c.end <= winEnd + 0.1);
-  repTotal = 2; repCur = 0; playing = false; stopped = false;
+  repTotal = 1; repCur = 0; playing = false; stopped = false;
   const names = missingVerseIdxList.map(i => "الآية "+(i+1)).join(" + ");
-  G("phase-label").textContent = "مراجعة: " + names + " — مرتان";
+  G("phase-label").textContent = "مراجعة: " + names + " — مرة واحدة";
   G("ayah-full-text").textContent = missingVerseIdxList.map(i=>verses[i]).join("\n");
   G("ayah-full-box").classList.remove("hidden");
   G("attempt-badge").textContent = "إعادة الاستماع";
   G("rep-cur").textContent = "0";
   G("prog-fill").style.width = "0%";
   G("prog-pct").textContent = "0%";
-  G("rep-of").innerHTML = "من أصل <strong>2</strong> تكرارات";
+  G("rep-of").innerHTML = "من أصل <strong>1</strong> تكرار";
   G("rep-state").textContent = "جاهز للبدء";
   G("btn-listen-start").textContent = "▶";
   G("btn-listen-start").disabled = false;
@@ -1438,7 +1438,7 @@ G("btn-listen-start").addEventListener("click", () => {
     }
   } else if (phase === "retry_listen") {
     G("btn-listen-start").disabled = true;
-    startRetryWordByWord();
+    startReps();
   }
 });
 G("btn-listen-stop").addEventListener("click", () => {
