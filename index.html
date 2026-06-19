@@ -924,7 +924,7 @@ function beginListenPhase(keepRep) {
   phase = "listen";
   saveState();
   updateProgressTrack();
-  const reps = 10 + Math.max(0, curVerseIdx - 1);
+  const reps = 0 + Math.max(0, curVerseIdx - 1);
   repTotal = reps;
   if (!keepRep) repCur = 0;
   G("btn-listen-start").disabled = false;
