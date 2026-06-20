@@ -1494,68 +1494,78 @@ async function startRecog() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
   if (SR) {
-    function restartRecog() {
-      G("mic-ring").classList.remove("on");
-      if (!finalTx.trim() && lastFullTx) finalTx = lastFullTx;
-      if (!window._recogActive) return;
-      setTimeout(() => {
-        try {
-          recog = new SR();
-          recog.lang = "ar-SA";
-          recog.continuous = true;
-          recog.interimResults = true;
-          recog.maxAlternatives = 3;
-          recog.onstart = () => { G("mic-ring").classList.add("on"); };
-          recog.onresult = e => {
-            let interim = "";
-            for (let i = e.resultIndex; i < e.results.length; i++) {
-              if (e.results[i].isFinal) finalTx += e.results[i][0].transcript + " ";
-              else interim += e.results[i][0].transcript;
-            }
-            const candidate = (finalTx + interim).trim();
-            if (candidate.length >= lastFullTx.length) lastFullTx = candidate;
-            G("transcript").textContent = lastFullTx || "...";
-            setWord(lastFullTx.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || "—");
-          };
-          recog.onerror = e => {
-            if (e.error !== "aborted") G("rec-status").textContent = "خطأ: " + e.error;
-          };
-          recog.onend = restartRecog;
-          recog.start();
-        } catch(e) {}
-      }, 0);
+    function makeRecog() {
+      const r = new SR();
+      r.lang = "ar-SA";
+      r.continuous = true;
+      r.interimResults = true;
+      r.maxAlternatives = 3;
+      r.onstart = () => { G("mic-ring").classList.add("on"); };
+      r.onresult = e => {
+        let interim = "";
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          if (e.results[i].isFinal) finalTx += e.results[i][0].transcript + " ";
+          else interim += e.results[i][0].transcript;
+        }
+        const candidate = (finalTx + interim).trim();
+        if (candidate.length >= lastFullTx.length) lastFullTx = candidate;
+        G("transcript").textContent = lastFullTx || "...";
+        setWord(lastFullTx.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || "—");
+      };
+      r.onerror = e => {
+        if (e.error !== "aborted") G("rec-status").textContent = "خطأ: " + e.error;
+      };
+      r.onend = restartRecog;
+      return r;
     }
 
-    recog = new SR();
-    recog.lang = "ar-SA";
-    recog.continuous = true;
-    recog.interimResults = true;
-    recog.maxAlternatives = 3;
+    function restartRecog() {
+      G("mic-ring").classList.remove("on");
+      // CRITIQUE : à la coupure, des mots "interim" (pas encore isFinal)
+      // peuvent être perdus et ne jamais rejoindre finalTx, alors qu'ils
+      // étaient déjà visibles à l'écran via lastFullTx (finalTx + interim).
+      // On fige donc TOUJOURS finalTx sur lastFullTx ici, qui est le texte
+      // le plus complet connu à cet instant — jamais l'inverse.
+      if (lastFullTx.trim().length >= finalTx.trim().length) {
+        finalTx = lastFullTx.trim() + " ";
+      }
+      if (!window._recogActive) return;
+      // Redémarrage immédiat (sans setTimeout) pour minimiser le trou
+      // d'écoute pendant lequel des mots récités seraient totalement perdus.
+      try {
+        recog = makeRecog();
+        recog.start();
+      } catch(e) {
+        // InvalidStateError possible si l'ancien moteur n'a pas fini de
+        // se libérer : on retente une fois après un court délai.
+        setTimeout(() => {
+          if (!window._recogActive) return;
+          try { recog = makeRecog(); recog.start(); } catch(e2) {}
+        }, 80);
+      }
+    }
+
+    recog = makeRecog();
     recog.onstart = () => {
       G("mic-ring").classList.add("on");
       G("rec-status").textContent = "جارٍ الاستماع... تكلّم الآن!";
       const t = G("transcript"); t.style.display = "block"; t.textContent = "...";
       setWord("—");
     };
-    recog.onresult = e => {
-      let interim = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) finalTx += e.results[i][0].transcript + " ";
-        else interim += e.results[i][0].transcript;
-      }
-      const candidate = (finalTx + interim).trim();
-      if (candidate.length >= lastFullTx.length) lastFullTx = candidate;
-      G("transcript").textContent = lastFullTx || "...";
-      setWord(lastFullTx.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || "—");
-    };
-    recog.onerror = e => {
-      if (e.error !== "aborted") G("rec-status").textContent = "خطأ: " + e.error;
-    };
-    recog.onend = restartRecog;
 
     try {
       window._recogActive = true;
       recog.start();
+      // Filet de sécurité : toutes les 500ms, on garantit que finalTx ne
+      // soit jamais en retard sur lastFullTx (ce qui est affiché à l'écran),
+      // peu importe la séquence exacte d'événements Web Speech reçus.
+      if (window._recogWatchdog) clearInterval(window._recogWatchdog);
+      window._recogWatchdog = setInterval(() => {
+        if (!window._recogActive) { clearInterval(window._recogWatchdog); return; }
+        if (lastFullTx.trim().length > finalTx.trim().length) {
+          finalTx = lastFullTx.trim() + " ";
+        }
+      }, 500);
     } catch(e) {
       G("rec-status").textContent = "لا يمكن بدء التعرف الصوتي: " + e.message;
       G("btn-rec-stop").classList.add("hidden");
@@ -1616,7 +1626,7 @@ G("btn-rec-stop").addEventListener("click", () => {
   G("btn-rec-stop").classList.add("hidden");
   G("btn-rec-start").classList.add("hidden");
   G("rec-status").textContent = "جارٍ التحليل...";
-  if (!finalTx.trim() && lastFullTx) finalTx = lastFullTx;
+  if (lastFullTx.trim().length >= finalTx.trim().length) finalTx = lastFullTx.trim() + " ";
   setTimeout(() => evaluate(), 1500);
 });
 function playGroupOnce(then) {
