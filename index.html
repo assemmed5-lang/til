@@ -2,7 +2,10 @@
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#1a1208">
 <title>بنك التلاوة — آية بآية</title>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
@@ -37,27 +40,32 @@ body { display: flex; flex-direction: column; font-family: 'Traditional Arabic',
 #screen {
   flex: 1;
   display: flex; align-items: center; justify-content: center;
-  padding: 1rem;
+  padding: 0.4rem;
   overflow: hidden;
+  min-height: 0;
 }
 #current-word {
   color: #f5e6c0;
   font-size: var(--word-size);
   font-weight: var(--word-weight);
-  line-height: 1.2;
+  line-height: 1.05;
   text-align: center;
   direction: rtl;
   word-break: keep-all;
   overflow-wrap: normal;
   white-space: normal;
-  transition: font-size 0.2s;
+  transition: font-size 0.15s;
   text-shadow: 0 2px 18px rgba(0,0,0,0.5);
+  width: 100%;
+  max-height: 100%;
 }
 #btn-bar {
-  display: flex; gap: 10px; padding: 14px;
+  display: flex; gap: 10px;
+  padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
   background: rgba(0,0,0,0.5);
+  flex-shrink: 0;
 }
-.btn { flex:1; padding: 18px 8px; font-size: 28px; font-weight: 700; border: none; border-radius: 14px; cursor: pointer; font-family: inherit; }
+.btn { flex:1; padding: 12px 8px; font-size: 24px; font-weight: 700; border: none; border-radius: 14px; cursor: pointer; font-family: inherit; }
 .btn:disabled { opacity: 0.35; cursor: not-allowed; }
 .btn-green { background: var(--green-mid); color: #fff; }
 .btn-red   { background: var(--red-mid);   color: #fff; }
@@ -189,27 +197,47 @@ audio { position:fixed; bottom:-100px; left:-100px; width:1px; height:1px; }
 <script>
 const G = id => document.getElementById(id);
 
+/* ── Auto-fit texte : agrandit/réduit la police pour remplir le cadre #screen
+   au maximum, dans les deux dimensions (largeur ET hauteur), sans déborder.
+   Remplace l'ancien calcul statique par nombre de caractères en vw. ── */
+function autoFitWord(el) {
+  const wrap = G("screen");
+  if (!wrap || !el.textContent && !el.innerText) return;
+  const maxW = wrap.clientWidth  - 8;   // petite marge de sécurité
+  const maxH = wrap.clientHeight - 8;
+  if (maxW <= 0 || maxH <= 0) return;
+
+  let lo = 8, hi = 600; // bornes en px de font-size
+  el.style.lineHeight = "1.05";
+  el.style.display = "block";
+  // recherche binaire de la plus grande taille qui rentre dans le cadre
+  for (let i = 0; i < 18; i++) {
+    const mid = (lo + hi) / 2;
+    el.style.fontSize = mid + "px";
+    const fits = el.scrollWidth <= maxW && el.scrollHeight <= maxH;
+    if (fits) lo = mid; else hi = mid;
+  }
+  el.style.fontSize = lo + "px";
+}
+
 function setWord(text) {
   const el = G("current-word");
+  el.style.lineHeight = "1.05";
   el.textContent = text;
-  const len = text.replace(/[ً-ٟ]/g, "").length;
-  const size = len <= 3 ? 28 : len <= 5 ? 22 : len <= 8 ? 16 : len <= 12 ? 12 : 9;
-  el.style.fontSize = size + "vw";
+  autoFitWord(el);
 }
+
+window.addEventListener("resize", () => {
+  const el = G("current-word");
+  if (el && el.style.display !== "none") autoFitWord(el);
+});
 
 /* Affiche le texte complet du/des versets avec mots ratés en rouge */
 function showVerseWithMisses(verseIndices, heardNorm) {
   const el = G("current-word");
   el.innerHTML = "";
   el.style.color = "";
-
-  // Calculer taille adaptée selon nombre de mots total
-  const totalWords = verseIndices.reduce((acc, vi) => {
-    return acc + (verses[vi] ? verses[vi].split(/\s+/).filter(Boolean).length : 0);
-  }, 0);
-  const fontSize = totalWords <= 4 ? "7vw" : totalWords <= 8 ? "5.5vw" : totalWords <= 14 ? "4.5vw" : "3.8vw";
-  el.style.fontSize = fontSize;
-  el.style.lineHeight = "1.7";
+  el.style.lineHeight = "1.35";
 
   verseIndices.forEach((vi, idx) => {
     // Chercher dans verses[] OU revVerses[] selon le mode actif
@@ -229,6 +257,7 @@ function showVerseWithMisses(verseIndices, heardNorm) {
       el.appendChild(span);
     });
   });
+  autoFitWord(el);
 }
 
 function loadBank() { try { return JSON.parse(localStorage.getItem("tilawa_bank")||"[]"); } catch { return []; } }
@@ -1941,7 +1970,7 @@ function revEvaluateSingle() {
 
   if (score >= 80) {
     setTimeout(() => {
-      const el = G("current-word"); el.innerHTML = ""; el.style.fontSize = ""; el.style.color = ""; el.textContent = "—";
+      setWord("—");
       const next = revExamVerseIdx + 1;
       if (next < revVerses.length) {
         revStartExamSingle(next);
@@ -1951,7 +1980,7 @@ function revEvaluateSingle() {
     }, 2800);
   } else {
     setTimeout(() => {
-      const el = G("current-word"); el.innerHTML = ""; el.style.fontSize = ""; el.style.color = ""; el.textContent = "—";
+      setWord("—");
       revRelistenVerse(revExamVerseIdx, () => revStartExamSingle(revExamVerseIdx));
     }, 3500);
   }
@@ -2068,7 +2097,7 @@ function revEvaluateAll() {
     G("score-lbl").textContent = "ممتاز! أتقنت السورة! 🌟";
     G("score-msg").textContent = "المراجعة مكتملة — أحسنت!";
     setTimeout(() => {
-      const el = G("current-word"); el.innerHTML = ""; el.style.fontSize = ""; el.style.color = ""; el.textContent = "—";
+      setWord("—");
       G("review-phase-label").style.display = "none";
       markReviewDone(revSuraIdx);
       revMode = false;
@@ -2084,7 +2113,7 @@ function revEvaluateAll() {
     G("score-lbl").textContent = "لا بأس — نعيد الاستماع مرة أخرى";
     G("score-msg").textContent = "ستستمع للسورة كاملة مجدداً ثم تُسمِّع";
     setTimeout(() => {
-      const el = G("current-word"); el.innerHTML = ""; el.style.fontSize = ""; el.style.color = ""; el.textContent = "—";
+      setWord("—");
       G("card-result").classList.add("hidden");
       revPlayAllThenExamAll();
     }, 3500);
@@ -2155,12 +2184,12 @@ function evaluate() {
   nm.classList.add("hidden"); nx.classList.add("hidden");
   if (score >= 70) {
     setTimeout(() => {
-      const el = G("current-word"); el.innerHTML = ""; el.style.fontSize = ""; el.style.color = ""; el.textContent = "—";
+      setWord("—");
       advanceAfterPass();
     }, 2800);
   } else {
     setTimeout(() => {
-      const el = G("current-word"); el.innerHTML = ""; el.style.fontSize = ""; el.style.color = ""; el.textContent = "—";
+      setWord("—");
       const allIndices = [];
       const from2 = examSolo ? curVerseIdx : 0;
       for (let i = from2; i <= curVerseIdx; i++) allIndices.push(i);
