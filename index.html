@@ -1372,6 +1372,12 @@ function tick() {
       const expVi = phase === "retry_listen" ? (retryMissing[0] ?? curVerseIdx) : curVerseIdx;
       const expW = verses[expVi] ? verses[expVi].split(/\s+/).filter(Boolean).map(norm) : [];
       let heard = ""; let gotSpeech = false;
+      // accumFinal persiste across les redémarrages du micro (silences) —
+      // c'est l'équivalent local de finalTx : ne JAMAIS la réinitialiser
+      // lors d'un redémarrage, sinon tout ce qui a été dit avant le dernier
+      // silence est perdu (bug historique de l'écran d'examen, désormais
+      // corrigé aussi ici).
+      let accumFinal = "";
       const _pauseStart = Date.now();
       window._pauseEnded = false;
 
@@ -1392,15 +1398,21 @@ function tick() {
         const pr = new SRBrowser();
         pr.lang = "ar-SA"; pr.continuous = true; pr.interimResults = true;
         pr.onresult = e => {
-          let f="",im="";
-          for(let i=e.resultIndex;i<e.results.length;i++){if(e.results[i].isFinal)f+=e.results[i][0].transcript;else im+=e.results[i][0].transcript;}
-          const txt=(f+im).trim();
-          if(txt){heard=txt;gotSpeech=true;}
-          const mot=txt.split(/\s+/).filter(Boolean).slice(-1)[0];
-          if(mot){setWord(mot);G("transcript").textContent=txt;G("transcript").style.display="block";}
+          let im="";
+          for(let i=e.resultIndex;i<e.results.length;i++){if(e.results[i].isFinal)accumFinal+=e.results[i][0].transcript+" ";else im+=e.results[i][0].transcript;}
+          const txt=(accumFinal+im).trim();
+          if(txt.length >= heard.length){heard=txt;gotSpeech=true;}
+          const mot=heard.split(/\s+/).filter(Boolean).slice(-1)[0];
+          if(mot){setWord(mot);G("transcript").textContent=heard;G("transcript").style.display="block";}
         };
         pr.onend = () => {
           if(!window._pauseRecog || window._pauseEnded) return;
+          // CRITIQUE : avant de redémarrer, on fige accumFinal sur le texte
+          // affiché le plus complet (heard), pour ne jamais perdre les mots
+          // "interim" qui n'avaient pas encore été marqués isFinal.
+          if (heard.trim().length >= accumFinal.trim().length) {
+            accumFinal = heard.trim() + " ";
+          }
           // Toujours redémarrer le moteur tant que la pause globale n'est pas finie —
           // webkitSpeechRecognition s'arrête seul après un court silence, ce n'est PAS
           // la fin de la pause de 3s, juste la fin d'un cycle d'écoute interne.
