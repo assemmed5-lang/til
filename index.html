@@ -279,18 +279,19 @@ function showVerseWithMisses(verseIndices, heardNorm) {
   el.style.color = "";
   el.style.lineHeight = "1.35";
 
+  // Curseur partagé à travers tous les versets affichés à la suite, pour
+  // qu'un mot du verset 1 ne puisse jamais valider à tort le même mot du
+  // verset 2 (cohérent avec l'alignement utilisé dans evaluate()).
+  const matchState = { used: null, cursor: 0 };
+
   verseIndices.forEach((vi, idx) => {
     // Chercher dans verses[] OU revVerses[] selon le mode actif
     const verseList = (revMode && revVerses.length) ? revVerses : verses;
     if (!verseList[vi]) return;
     const words = verseList[vi].split(/\s+/).filter(Boolean);
     if (idx > 0) { el.appendChild(document.createElement("br")); }
-    words.forEach((w, i) => {
-      const nw = norm(w);
-      const heardWords = heardNorm ? heardNorm.split(/\s+/) : [];
-      const ok = heardNorm && (heardNorm.includes(nw) || heardWords.some(hw =>
-        hw === nw || (nw.length > 4 && (hw.startsWith(nw.slice(0,4)) || nw.startsWith(hw.slice(0,4))))
-      ));
+    const matched = matchWordsSequential(words, heardNorm, matchState);
+    matched.forEach(({ w, ok }, i) => {
       const span = document.createElement("span");
       span.textContent = (i > 0 ? " " : "") + w;
       span.style.color = ok ? "#f5e6c0" : "#E24B4A";
@@ -340,6 +341,50 @@ function norm(s) {
     .replace(/ـ/g,"")
     .replace(/(.)\1{2,}/g,"$1$1")
     .replace(/\s+/g," ").trim().toLowerCase();
+}
+
+/* ── Alignement séquentiel mot-à-mot ──
+   Remplace l'ancien test "heard.includes(nw) || heardWords.some(...)" qui
+   cherchait chaque mot attendu N'IMPORTE OÙ dans tout le texte entendu, sans
+   jamais "consommer" les mots déjà utilisés. Bug concret : sur un examen à
+   2 versets, un mot fréquent (الله، من، في...) déjà dit dans le verset 1
+   validait automatiquement le même mot dans le verset 2 même si l'enfant ne
+   l'avait pas redit — donnant l'impression que seul le 1er verset est
+   vraiment corrigé.
+   Ici, chaque mot attendu ne peut matcher qu'un mot entendu PAS ENCORE
+   consommé, recherché dans une fenêtre proche du curseur courant (un peu de
+   tolérance pour le désordre/bruit de la reconnaissance vocale, sans
+   permettre de réutiliser un mot très éloigné déjà "dépensé").
+   Retourne le tableau des mots attendus avec leur statut ok:true/false. ── */
+function matchWordsSequential(expectedWords, heardNorm, state) {
+  const heardWords = heardNorm ? heardNorm.split(/\s+/).filter(Boolean) : [];
+  // state permet de partager le curseur/used entre plusieurs appels successifs
+  // (ex: plusieurs versets affichés à la suite) — sans state, chaque appel
+  // repart de zéro (comportement pour un seul verset isolé).
+  if (!state) state = { used: new Array(heardWords.length).fill(false), cursor: 0 };
+  if (!state.used || state.used.length !== heardWords.length) {
+    state.used = new Array(heardWords.length).fill(false);
+  }
+  const used = state.used;
+  const WINDOW = 6; // tolérance de recherche autour du curseur
+  return expectedWords.map(w => {
+    const nw = norm(w);
+    let foundAt = -1;
+    const lo = Math.max(0, state.cursor - 1);
+    const hi = Math.min(heardWords.length, state.cursor + WINDOW);
+    for (let j = lo; j < hi; j++) {
+      if (used[j]) continue;
+      const hw = heardWords[j];
+      const match = hw === nw || (nw.length > 4 && (hw.startsWith(nw.slice(0,4)) || nw.startsWith(hw.slice(0,4))));
+      if (match) { foundAt = j; break; }
+    }
+    if (foundAt >= 0) {
+      used[foundAt] = true;
+      state.cursor = foundAt + 1;
+      return { w, ok: true };
+    }
+    return { w, ok: false };
+  });
 }
 
 function findVerseWindow(allCues, verseText) {
@@ -2014,14 +2059,7 @@ function revStartExamSingle(vi) {
 function revEvaluateSingle() {
   const heard = norm(finalTx);
   const words = revVerses[revExamVerseIdx].split(/\s+/).filter(Boolean);
-  const allWords = words.map(w => {
-    const nw = norm(w);
-    const heardWords = heard.split(/\s+/);
-    const ok = heard.includes(nw) || heardWords.some(hw =>
-      hw === nw || (nw.length > 4 && (hw.startsWith(nw.slice(0,4)) || nw.startsWith(hw.slice(0,4))))
-    );
-    return { w, ok };
-  });
+  const allWords = matchWordsSequential(words, heard);
   const found = allWords.filter(x => x.ok).length;
   const score = Math.round((found / words.length) * 100);
 
@@ -2124,13 +2162,11 @@ function revStartExamAll() {
 function revEvaluateAll() {
   const heard = norm(finalTx);
   const allWords = [];
+  // Curseur partagé à travers tous les versets, cohérent avec evaluate().
+  const matchState = { used: null, cursor: 0 };
   revVerses.forEach((v, vi) => {
-    v.split(/\s+/).filter(Boolean).forEach(w => {
-      const nw = norm(w);
-      const heardWords = heard.split(/\s+/);
-      const ok = heard.includes(nw) || heardWords.some(hw =>
-        hw === nw || (nw.length > 4 && (hw.startsWith(nw.slice(0,4)) || nw.startsWith(hw.slice(0,4))))
-      );
+    const words = v.split(/\s+/).filter(Boolean);
+    matchWordsSequential(words, heard, matchState).forEach(({ w, ok }) => {
       allWords.push({ w, ok, vi });
     });
   });
@@ -2202,31 +2238,23 @@ function evaluate() {
   if (examSolo) {
     // Exam solo : évaluation mot par mot sur le verset unique
     const words = verses[curVerseIdx].split(/\s+/).filter(Boolean);
-    words.forEach(w => {
-      const nw = norm(w);
-      const heardWords = heard.split(/\s+/);
-      const ok = heard.includes(nw) || heardWords.some(hw =>
-        hw === nw || (nw.length > 4 && (hw.startsWith(nw.slice(0,4)) || nw.startsWith(hw.slice(0,4))))
-      );
-      allWords.push({ w, ok, vi: curVerseIdx });
-    });
+    const matched = matchWordsSequential(words, heard);
+    matched.forEach(({ w, ok }) => allWords.push({ w, ok, vi: curVerseIdx }));
     const versePct = Math.round(allWords.filter(x=>x.ok).length / allWords.length * 100);
     verseResults.push({ vi: curVerseIdx, passed: versePct >= 70, pct: versePct });
   } else {
-    // Exam collectif : évaluer CHAQUE verset séparément
-    // Un verset passe si >= 70% de ses mots sont détectés
+    // Exam collectif : évaluer chaque verset séparément, MAIS avec un
+    // curseur qui progresse à travers tous les versets dans l'ordre, pour
+    // qu'un mot déjà "consommé" par le verset 1 ne puisse pas valider à
+    // tort le même mot dans le verset 2 (bug corrigé : avant, un mot
+    // fréquent répété entre versets faisait ignorer les vraies erreurs
+    // du 2e verset).
+    const matchState = { used: null, cursor: 0 };
     for (let vi = from; vi <= to; vi++) {
       const words = verses[vi].split(/\s+/).filter(Boolean);
-      const verseWords = [];
-      words.forEach(w => {
-        const nw = norm(w);
-        const heardWords = heard.split(/\s+/);
-        const ok = heard.includes(nw) || heardWords.some(hw =>
-          hw === nw || (nw.length > 4 && (hw.startsWith(nw.slice(0,4)) || nw.startsWith(hw.slice(0,4))))
-        );
-        verseWords.push({ w, ok, vi });
-        allWords.push({ w, ok, vi });
-      });
+      const verseWords = matchWordsSequential(words, heard, matchState)
+        .map(r => ({ ...r, vi }));
+      verseWords.forEach(vw => allWords.push(vw));
       const versePct = Math.round(verseWords.filter(x=>x.ok).length / verseWords.length * 100);
       verseResults.push({ vi, passed: versePct >= 70, pct: versePct });
     }
