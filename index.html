@@ -39,6 +39,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); }
 body { display: flex; flex-direction: column; font-family: 'Traditional Arabic','Arial Unicode MS', serif; }
 #screen {
   flex: 1;
+  position: relative;
   display: flex; align-items: center; justify-content: center;
   padding: 0.4rem;
   overflow: hidden;
@@ -57,7 +58,9 @@ body { display: flex; flex-direction: column; font-family: 'Traditional Arabic',
   transition: font-size 0.15s;
   text-shadow: 0 2px 18px rgba(0,0,0,0.5);
   width: 100%;
+  max-width: 100%;
   max-height: 100%;
+  overflow: hidden;
 }
 #btn-bar {
   display: flex; gap: 10px;
@@ -202,22 +205,55 @@ const G = id => document.getElementById(id);
    Remplace l'ancien calcul statique par nombre de caractères en vw. ── */
 function autoFitWord(el) {
   const wrap = G("screen");
-  if (!wrap || !el.textContent && !el.innerText) return;
+  if (!wrap) return;
+  if (!el.textContent && !el.innerText) return;
   const maxW = wrap.clientWidth  - 8;   // petite marge de sécurité
   const maxH = wrap.clientHeight - 8;
   if (maxW <= 0 || maxH <= 0) return;
 
-  let lo = 8, hi = 600; // bornes en px de font-size
+  // Couper la transition CSS pendant les calculs : sinon chaque changement
+  // de fontSize (20 itérations) anime visuellement → effet de "vibration".
+  const prevTransition = el.style.transition;
+  el.style.transition = "none";
+
+  // IMPORTANT : pour mesurer le vrai débordement, l'élément doit avoir
+  // une largeur intrinsèque (pas width:100%), sinon scrollWidth reste
+  // toujours égal à la largeur du cadre et ne détecte jamais le dépassement.
+  // On le sort aussi du flux normal (position absolute) pendant la mesure
+  // pour qu'il ne puisse pas élargir le document et déclencher un resize.
+  const prevPosition = el.style.position;
+  const prevVisibility = el.style.visibility;
+  el.style.position = "absolute";
+  el.style.visibility = "hidden";
+  el.style.width = "max-content";
+  el.style.maxWidth = "none";
+  el.style.whiteSpace = "nowrap";
   el.style.lineHeight = "1.05";
   el.style.display = "block";
+  el.style.flexShrink = "0";
+
+  let lo = 8, hi = 600; // bornes en px de font-size
   // recherche binaire de la plus grande taille qui rentre dans le cadre
-  for (let i = 0; i < 18; i++) {
+  for (let i = 0; i < 20; i++) {
     const mid = (lo + hi) / 2;
     el.style.fontSize = mid + "px";
-    const fits = el.scrollWidth <= maxW && el.scrollHeight <= maxH;
+    const w = Math.max(el.scrollWidth, el.getBoundingClientRect().width);
+    const h = Math.max(el.scrollHeight, el.getBoundingClientRect().height);
+    const fits = w <= maxW && h <= maxH;
     if (fits) lo = mid; else hi = mid;
   }
   el.style.fontSize = lo + "px";
+
+  // Remettre le texte dans le flux normal avec la taille calculée.
+  el.style.position = prevPosition || "";
+  el.style.visibility = prevVisibility || "";
+  el.style.width = "100%";
+  el.style.maxWidth = "100%";
+  el.style.whiteSpace = "normal";
+
+  // Réactiver la transition juste après, au prochain frame, pour que les
+  // futurs changements de taille (mot suivant) restent animés en douceur.
+  requestAnimationFrame(() => { el.style.transition = prevTransition || ""; });
 }
 
 function setWord(text) {
@@ -227,9 +263,13 @@ function setWord(text) {
   autoFitWord(el);
 }
 
+let _resizeTimer = null;
 window.addEventListener("resize", () => {
-  const el = G("current-word");
-  if (el && el.style.display !== "none") autoFitWord(el);
+  if (_resizeTimer) clearTimeout(_resizeTimer);
+  _resizeTimer = setTimeout(() => {
+    const el = G("current-word");
+    if (el && el.style.display !== "none") autoFitWord(el);
+  }, 200);
 });
 
 /* Affiche le texte complet du/des versets avec mots ratés en rouge */
@@ -2236,6 +2276,15 @@ G("btn-restart").addEventListener("click", () => {
 document.querySelectorAll(".kid-btn").forEach(btn => {
   btn.addEventListener("click", () => {
     try {
+      // Plein écran natif — déclenché ici car c'est le 1er geste utilisateur de la session
+      try {
+        const el = document.documentElement;
+        const req = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+        if (req) {
+          const p = req.call(el);
+          if (p && p.catch) p.catch(() => {});
+        }
+      } catch(e) {}
       currentKid = btn.dataset.kid;
       G("kid-select").style.display = "none";
       setWord("⏳");
