@@ -48,7 +48,7 @@ jobs:
           }
           JAVAEOF
           cp MainActivity.java android/app/src/main/java/com/tilawa/sourate/MainActivity.java
-          cp tilawa.jks android/tilawa.jks
+          cp tilawa.jks android/app/tilawa.jks
           cd android
           chmod +x gradlew
           ./gradlew assembleRelease \
