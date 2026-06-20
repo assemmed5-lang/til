@@ -2202,6 +2202,7 @@ document.querySelectorAll(".kid-btn").forEach(btn => {
   btn.addEventListener("click", () => {
     try {
       currentKid = btn.dataset.kid;
+      G("kid-select").style.display = "none";
       setWord("⏳");
       curSuraIdx = parseInt(localStorage.getItem(kidKey("sura")) || "0");
       if (!(curSuraIdx >= 0) || curSuraIdx >= BANQUE_SOURATES.length) curSuraIdx = 0;
