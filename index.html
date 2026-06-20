@@ -68,47 +68,6 @@ body { display: flex; flex-direction: column; font-family: 'Traditional Arabic',
   background: rgba(0,0,0,0.5);
   flex-shrink: 0;
 }
-
-/* ── Indicateur géant du micro, synchronisé à l'état réel du moteur de
-   reconnaissance vocale. Pas de carré stop séparé : le micro lui-même
-   devient rouge quand le micro est fermé/en redémarrage, vert (couleur
-   normale) quand actif. ── */
-#mic-indicator {
-  position: absolute;
-  z-index: 50;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-  transition: top 0.25s ease, left 0.25s ease, right 0.25s ease,
-              width 0.25s ease, height 0.25s ease, opacity 0.2s ease;
-}
-#mic-indicator.hidden { display: none !important; }
-
-/* Centre de l'écran, x4 la taille normale — micro actif ou en attente */
-#mic-indicator.state-mic-big {
-  top: 0; left: 0; right: 0; bottom: 0;
-  width: auto; height: auto;
-  background: transparent;
-}
-
-/* Réduit dans le coin supérieur gauche, taille normale */
-#mic-indicator.state-mic-small {
-  top: 10px; left: 10px; right: auto; bottom: auto;
-  width: 15vmin; height: 15vmin;
-  background: transparent;
-}
-
-#mic-indicator.state-mic-big #mic-indicator-svg { width: 60vmin; height: 60vmin; max-width: 90%; max-height: 90%; }
-#mic-indicator.state-mic-small #mic-indicator-svg { width: 100%; height: 100%; }
-
-@keyframes micPulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.08); }
-}
-#mic-indicator-svg { animation: micPulse 1.1s ease-in-out infinite; }
-#mic-indicator.is-stopped #mic-indicator-svg g,
-#mic-indicator.is-stopped #mic-indicator-svg rect { fill: #E24B4A !important; }
 .btn { flex:1; padding: 12px 8px; font-size: 24px; font-weight: 700; border: none; border-radius: 14px; cursor: pointer; font-family: inherit; }
 .btn:disabled { opacity: 0.35; cursor: not-allowed; }
 .btn-green { background: var(--green-mid); color: #fff; }
@@ -181,6 +140,35 @@ audio { position:fixed; bottom:-100px; left:-100px; width:1px; height:1px; }
   background: #888; transition: width 0.4s ease;
 }
 #bar-surah-pct, #bar-rep-pct { font-size: 0.72rem; color: #777; }
+
+/* ─── Flash liste des sourates à apprendre ─── */
+#sura-list-flash {
+  position: fixed; inset: 0; background: var(--bg);
+  z-index: 9997;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 12px;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.18s ease;
+}
+#sura-list-flash.show { opacity: 1; }
+#sura-list-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px 8px;
+  width: 100%; max-width: 600px;
+}
+.sura-list-item {
+  color: #c8b87e;
+  font-size: 6.4vw;
+  font-weight: 400;
+  text-align: center;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+.sura-list-item.acquired {
+  color: var(--green-mid);
+  font-weight: 900;
+}
 </style>
 </head>
 <body>
@@ -197,14 +185,14 @@ audio { position:fixed; bottom:-100px; left:-100px; width:1px; height:1px; }
   <button class="rev-btn" style="background:rgba(255,255,255,0.1);color:#aaa;margin-top:0" id="btn-skip-review">تخطّ الآن (لن تُحفظ)</button>
 </div>
 <div id="review-phase-label"></div>
+<div id="sura-list-flash">
+  <div id="sura-list-grid"></div>
+</div>
 <div id="bar-surah-wrap" style="display:none">
   <div id="bar-surah-track"><div id="bar-surah-fill"></div></div>
 </div>
 <div id="screen">
   <div id="current-word">—</div>
-  <div id="mic-indicator" class="hidden">
-    <svg id="mic-indicator-svg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"></svg>
-  </div>
 </div>
 <div id="btn-bar">
   <button class="btn btn-green" id="btn-listen-start" disabled>▶</button>
@@ -375,66 +363,6 @@ function parseSRT(txt) {
     cues.push({ start, end, text });
   }
   return cues;
-}
-
-/* ══════════════════════════════════════════════
-   INDICATEUR GÉANT MICRO
-   Symbole visuel unique (le micro), pas de mot, pas de carré séparé :
-   - rouge = micro fermé / en attente de redémarrage (l'enfant doit arrêter
-     de parler) — affiché au centre, x4 la taille normale.
-   - couleur normale = micro actif (l'enfant peut parler) — affiché au
-     centre en x4 brièvement, puis réduit dans le coin haut-gauche à sa
-     taille normale pour laisser la place au texte/à la correction.
-   ══════════════════════════════════════════════ */
-const MIC_SVG_PATH =
-  '<g fill="#f5e6c0">' +
-  '<rect x="40" y="14" width="20" height="42" rx="10"/>' +
-  '<path d="M28 46 a22 22 0 0 0 44 0" fill="none" stroke="#f5e6c0" stroke-width="6" stroke-linecap="round"/>' +
-  '<rect x="47" y="68" width="6" height="14" fill="#f5e6c0"/>' +
-  '<rect x="34" y="82" width="32" height="6" rx="3" fill="#f5e6c0"/>' +
-  '</g>';
-
-function _micIndicatorEl() { return document.getElementById("mic-indicator"); }
-
-function showMicIndicator(state) {
-  // state: "stop" (centre, rouge, x4) | "big" (centre, x4) | "small" (coin, normal) | "off"
-  const el = _micIndicatorEl();
-  if (!el) return;
-  const svg = document.getElementById("mic-indicator-svg");
-  el.classList.remove("state-mic-big", "state-mic-small", "is-stopped", "hidden");
-  if (state === "off") { el.classList.add("hidden"); return; }
-  svg.innerHTML = MIC_SVG_PATH;
-  if (state === "stop") {
-    el.classList.add("state-mic-big", "is-stopped");
-  } else if (state === "big") {
-    el.classList.add("state-mic-big");
-  } else if (state === "small") {
-    el.classList.add("state-mic-small");
-  }
-}
-
-/* Appelée quand le moteur vocal vient de démarrer réellement (onstart) :
-   affiche le micro géant (x4, couleur normale) brièvement, puis le réduit
-   dans le coin à sa taille normale. */
-function micIndicatorOnStart() {
-  showMicIndicator("big");
-  if (window._micShrinkTO) clearTimeout(window._micShrinkTO);
-  window._micShrinkTO = setTimeout(() => {
-    showMicIndicator("small");
-  }, 700);
-}
-
-/* Appelée au moment où on sait que le micro n'écoute pas encore
-   (juste après le clic, ou pendant un redémarrage après silence) :
-   micro géant rouge au centre, pour signaler clairement l'arrêt. */
-function micIndicatorOnStop() {
-  if (window._micShrinkTO) { clearTimeout(window._micShrinkTO); window._micShrinkTO = null; }
-  showMicIndicator("stop");
-}
-
-function micIndicatorOff() {
-  if (window._micShrinkTO) { clearTimeout(window._micShrinkTO); window._micShrinkTO = null; }
-  showMicIndicator("off");
 }
 
 function norm(s) {
@@ -990,6 +918,49 @@ const BANQUE_SOURATES = [
   }
 ];
 
+/* ─── Liste complète des sourates du jouzou Amma (ordre inversé : Fatiha puis 114 → 87) ─── */
+const LISTE_SOURATES_AMMA = [
+  "الفاتحة",
+  "الناس", "الفلق", "الإخلاص", "المسد",
+  "النصر", "الكافرون", "الكوثر", "الماعون",
+  "قريش", "الفيل", "الهمزة", "العصر",
+  "التكاثر", "القارعة", "العاديات", "الزلزلة",
+  "البينة", "القدر", "العلق", "التين",
+  "الشرح", "الضحى", "الليل", "الشمس",
+  "البلد", "الفجر", "الغاشية", "الأعلى"
+];
+
+/* ─── Écran flash : liste des sourates, acquises en vert/gras ─── */
+function buildSuraListFlash() {
+  const grid = G("sura-list-grid");
+  if (!grid) return;
+  let acquiredNames = {};
+  try {
+    const a = loadAcquired();
+    Object.keys(a).forEach(idxStr => {
+      const si = parseInt(idxStr);
+      if (BANQUE_SOURATES[si]) acquiredNames[BANQUE_SOURATES[si].nom] = true;
+    });
+  } catch(e) {}
+  grid.innerHTML = "";
+  LISTE_SOURATES_AMMA.forEach(nom => {
+    const d = document.createElement("div");
+    d.className = "sura-list-item" + (acquiredNames[nom] ? " acquired" : "");
+    d.textContent = nom;
+    grid.appendChild(d);
+  });
+}
+
+function showSuraListFlash() {
+  try {
+    buildSuraListFlash();
+    const el = G("sura-list-flash");
+    if (!el) return;
+    el.classList.add("show");
+    setTimeout(() => { el.classList.remove("show"); }, 3000);
+  } catch(e) {}
+}
+
 /* ─── GESTION MULTI-ENFANTS ─── */
 let currentKid = null; // sera défini après le clic sur un bouton enfant
 
@@ -1159,6 +1130,7 @@ function beginListenPhase(keepRep) {
   phase = "listen";
   saveState();
   updateProgressTrack();
+  showSuraListFlash();
   const reps = 0 + Math.max(0, curVerseIdx - 1);
   repTotal = reps;
   if (!keepRep) repCur = 0;
@@ -1202,6 +1174,7 @@ function beginRetryListenPhase(missingVerseIdxList) {
   phase = "retry_listen";
   saveState();
   updateProgressTrack();
+  showSuraListFlash();
   retryMissing = missingVerseIdxList;
   let winStart = Infinity, winEnd = 0;
   missingVerseIdxList.forEach(vi => {
@@ -1380,7 +1353,6 @@ function stopPauseRecog() {
     try { window._pauseRecog.stop(); } catch(e) {}
     window._pauseRecog = null;
   }
-  micIndicatorOff();
 }
 
 
@@ -1502,7 +1474,6 @@ function tick() {
       function _startPR() {
         const pr = new SRBrowser();
         pr.lang = "ar-SA"; pr.continuous = true; pr.interimResults = true;
-        pr.onstart = () => { micIndicatorOnStart(); };
         pr.onresult = e => {
           let im="";
           for(let i=e.resultIndex;i<e.results.length;i++){if(e.results[i].isFinal)accumFinal+=e.results[i][0].transcript+" ";else im+=e.results[i][0].transcript;}
@@ -1513,9 +1484,6 @@ function tick() {
         };
         pr.onend = () => {
           if(!window._pauseRecog || window._pauseEnded) return;
-          // Le micro vient de se fermer — combler le délai de redémarrage
-          // avec le symbole stop, pour que l'enfant arrête de parler.
-          micIndicatorOnStop();
           // CRITIQUE : avant de redémarrer, on fige accumFinal sur le texte
           // affiché le plus complet (heard), pour ne jamais perdre les mots
           // "interim" qui n'avaient pas encore été marqués isFinal.
@@ -1529,12 +1497,11 @@ function tick() {
             if (window._pauseEnded || !window._pauseRecog) return;
             try{
               const r=new SRBrowser(); r.lang="ar-SA"; r.continuous=true; r.interimResults=true;
-              r.onstart=pr.onstart; r.onresult=pr.onresult; r.onend=pr.onend; window._pauseRecog=r; r.start();
+              r.onresult=pr.onresult; r.onend=pr.onend; window._pauseRecog=r; r.start();
             }catch(e){}
           },50);
         };
         window._pauseRecog = pr;
-        micIndicatorOnStop(); // combler le délai avant l'ouverture réelle du micro
         try{pr.start();}catch(e){}
       }
       _startPR();
@@ -1546,7 +1513,6 @@ function tick() {
       window._pauseEnded = true;
       const hadText = window._pauseEvalFinal ? window._pauseEvalFinal() : true;
       if(window._pauseRecog){try{window._pauseRecog.stop();}catch(e){}window._pauseRecog=null;}
-      micIndicatorOff();
 
       if (!hadText) {
         // Rien affiché à l'écran → active le bouton pause, bloque l'app
@@ -1623,7 +1589,7 @@ async function startRecog() {
       r.continuous = true;
       r.interimResults = true;
       r.maxAlternatives = 3;
-      r.onstart = () => { G("mic-ring").classList.add("on"); micIndicatorOnStart(); };
+      r.onstart = () => { G("mic-ring").classList.add("on"); };
       r.onresult = e => {
         let interim = "";
         for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -1644,7 +1610,6 @@ async function startRecog() {
 
     function restartRecog() {
       G("mic-ring").classList.remove("on");
-      micIndicatorOnStop(); // le micro vient de se fermer — combler le délai de redémarrage
       // CRITIQUE : à la coupure, des mots "interim" (pas encore isFinal)
       // peuvent être perdus et ne jamais rejoindre finalTx, alors qu'ils
       // étaient déjà visibles à l'écran via lastFullTx (finalTx + interim).
@@ -1672,7 +1637,6 @@ async function startRecog() {
     recog = makeRecog();
     recog.onstart = () => {
       G("mic-ring").classList.add("on");
-      micIndicatorOnStart();
       G("rec-status").textContent = "جارٍ الاستماع... تكلّم الآن!";
       const t = G("transcript"); t.style.display = "block"; t.textContent = "...";
       setWord("—");
@@ -1736,13 +1700,11 @@ async function startRecog() {
 G("btn-rec-start").addEventListener("click", () => {
   G("btn-rec-start").classList.add("hidden");
   G("btn-rec-stop").classList.remove("hidden");
-  micIndicatorOnStop(); // combler le délai entre le clic et l'ouverture réelle du micro
   startRecog();
 });
 
 G("btn-rec-stop").addEventListener("click", () => {
   window._recogActive = false;
-  micIndicatorOff();
   if (recog) { try { recog.stop(); } catch(e) {} recog = null; }
   const SRPlugin = window.Capacitor?.Plugins?.SpeechRecognition;
   if (SRPlugin) {
