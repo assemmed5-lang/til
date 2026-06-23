@@ -1035,9 +1035,6 @@ const BANQUE_SOURATES = [
 00:00:28,027 --> 00:00:30,408
 خَوْفٍ`
   },
-
-=== CODE BANQUE_SOURATES ===
-
   {
     nom: "الفيل",
     mp3: "105.mp3",
