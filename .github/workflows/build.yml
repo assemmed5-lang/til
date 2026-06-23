@@ -16,6 +16,7 @@ jobs:
         run: |
           mkdir -p www
           cp index.html www/
+          cp banque_sourates.js www/ 2>/dev/null || true
           cp -r data www/ 2>/dev/null || true
           cp *.mp3 www/ 2>/dev/null || true
           echo '{"name":"tilawa","version":"1.0.0","private":true}' > package.json
