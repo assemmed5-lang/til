@@ -1130,6 +1130,20 @@ async function startRecog() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
   if (SR) {
+    // Garde le contexte audio actif pour empêcher Android de couper le micro
+    // entre deux instances de reconnaissance (buffer silencieux en boucle).
+    if (!window._audioCtx) {
+      try {
+        window._audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const buf = window._audioCtx.createBuffer(1, 1, 22050);
+        const src = window._audioCtx.createBufferSource();
+        src.buffer = buf; src.loop = true;
+        src.connect(window._audioCtx.destination);
+        src.start(0);
+        window._audioKeepSrc = src;
+      } catch(e) {}
+    }
+
     function makeRecog() {
       const r = new SR();
       r.lang = "ar-SA";
@@ -1138,14 +1152,10 @@ async function startRecog() {
       r.maxAlternatives = 3;
       r.onstart = () => { G("mic-ring").classList.add("on"); };
       r.onresult = e => {
-        // Arrêt automatique après 4s de silence : on relance le minuteur
-        // à chaque résultat reçu (même partiel), et on déclenche un clic
-        // sur le bouton stop existant si rien n'arrive avant l'échéance.
         clearTimeout(window._silenceTimer);
         window._silenceTimer = setTimeout(() => {
           G("btn-rec-stop").click();
         }, 4000);
-
         let interim = "";
         for (let i = e.resultIndex; i < e.results.length; i++) {
           if (e.results[i].isFinal) finalTx += e.results[i][0].transcript + " ";
@@ -1157,36 +1167,26 @@ async function startRecog() {
         setWord(lastFullTx.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || "—");
       };
       r.onerror = e => {
+        if (e.error === "no-speech") return; // ignoré, redémarrage via onend
         if (e.error !== "aborted") G("rec-status").textContent = "خطأ: " + e.error;
       };
-      r.onend = restartRecog;
+      r.onend = () => {
+        G("mic-ring").classList.remove("on");
+        if (lastFullTx.trim().length >= finalTx.trim().length) {
+          finalTx = lastFullTx.trim() + " ";
+        }
+        if (!window._recogActive) return;
+        try {
+          recog = makeRecog();
+          recog.start();
+        } catch(e) {
+          setTimeout(() => {
+            if (!window._recogActive) return;
+            try { recog = makeRecog(); recog.start(); } catch(e2) {}
+          }, 50);
+        }
+      };
       return r;
-    }
-
-    function restartRecog() {
-      G("mic-ring").classList.remove("on");
-      // CRITIQUE : à la coupure, des mots "interim" (pas encore isFinal)
-      // peuvent être perdus et ne jamais rejoindre finalTx, alors qu'ils
-      // étaient déjà visibles à l'écran via lastFullTx (finalTx + interim).
-      // On fige donc TOUJOURS finalTx sur lastFullTx ici, qui est le texte
-      // le plus complet connu à cet instant — jamais l'inverse.
-      if (lastFullTx.trim().length >= finalTx.trim().length) {
-        finalTx = lastFullTx.trim() + " ";
-      }
-      if (!window._recogActive) return;
-      // Redémarrage immédiat (sans setTimeout) pour minimiser le trou
-      // d'écoute pendant lequel des mots récités seraient totalement perdus.
-      try {
-        recog = makeRecog();
-        recog.start();
-      } catch(e) {
-        // InvalidStateError possible si l'ancien moteur n'a pas fini de
-        // se libérer : on retente une fois après un court délai.
-        setTimeout(() => {
-          if (!window._recogActive) return;
-          try { recog = makeRecog(); recog.start(); } catch(e2) {}
-        }, 80);
-      }
     }
 
     recog = makeRecog();
@@ -1200,15 +1200,10 @@ async function startRecog() {
     try {
       window._recogActive = true;
       recog.start();
-      // Démarre aussi le minuteur de silence dès le départ, pour couvrir
-      // le cas où l'enfant ne dit jamais rien (aucun onresult déclenché).
       clearTimeout(window._silenceTimer);
       window._silenceTimer = setTimeout(() => {
         G("btn-rec-stop").click();
       }, 4000);
-      // Filet de sécurité : toutes les 500ms, on garantit que finalTx ne
-      // soit jamais en retard sur lastFullTx (ce qui est affiché à l'écran),
-      // peu importe la séquence exacte d'événements Web Speech reçus.
       if (window._recogWatchdog) clearInterval(window._recogWatchdog);
       window._recogWatchdog = setInterval(() => {
         if (!window._recogActive) { clearInterval(window._recogWatchdog); return; }
@@ -1302,6 +1297,8 @@ G("btn-rec-stop").addEventListener("click", () => {
   clearTimeout(window._silenceTimer);
   window._recogActive = false;
   if (recog) { try { recog.stop(); } catch(e) {} recog = null; }
+  if (window._audioKeepSrc) { try { window._audioKeepSrc.stop(); } catch(e){} window._audioKeepSrc = null; }
+  if (window._audioCtx) { try { window._audioCtx.close(); } catch(e){} window._audioCtx = null; }
   const SRPlugin = window.Capacitor?.Plugins?.SpeechRecognition;
   if (SRPlugin) {
     try { SRPlugin.stop(); } catch(e) {}
