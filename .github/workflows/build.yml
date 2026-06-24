@@ -39,7 +39,7 @@ jobs:
 
           cp *.mp3 www/ 2>/dev/null || true
           echo '{"name":"tilawa","version":"1.0.0","private":true}' > package.json
-          npm install @capacitor/core@5 @capacitor/cli@5 @capacitor/android@5 @capacitor-community/speech-recognition@5
+          npm install @capacitor/core@5 @capacitor/cli@5 @capacitor/android@5 @capgo/capacitor-speech-recognition@5
           python3 -c "import json; open('capacitor.config.json','w').write(json.dumps({'appId':'com.tilawa.sourate','appName':'Tilawa','webDir':'www','androidScheme':'https','android':{'allowMixedContent':True}}, indent=2))"
           npx cap add android
           npx cap sync android
@@ -61,7 +61,7 @@ jobs:
           import android.webkit.PermissionRequest;
           import android.webkit.WebChromeClient;
           import android.webkit.WebView;
-          import com.getcapacitor.community.speechrecognition.SpeechRecognition;
+          import ee.forgr.speech.SpeechRecognition;
           public class MainActivity extends BridgeActivity {
               @Override
               public void onCreate(Bundle savedInstanceState) {
