@@ -1138,6 +1138,14 @@ async function startRecog() {
       r.maxAlternatives = 3;
       r.onstart = () => { G("mic-ring").classList.add("on"); };
       r.onresult = e => {
+        // Arrêt automatique après 4s de silence : on relance le minuteur
+        // à chaque résultat reçu (même partiel), et on déclenche un clic
+        // sur le bouton stop existant si rien n'arrive avant l'échéance.
+        clearTimeout(window._silenceTimer);
+        window._silenceTimer = setTimeout(() => {
+          G("btn-rec-stop").click();
+        }, 4000);
+
         let interim = "";
         for (let i = e.resultIndex; i < e.results.length; i++) {
           if (e.results[i].isFinal) finalTx += e.results[i][0].transcript + " ";
@@ -1192,6 +1200,12 @@ async function startRecog() {
     try {
       window._recogActive = true;
       recog.start();
+      // Démarre aussi le minuteur de silence dès le départ, pour couvrir
+      // le cas où l'enfant ne dit jamais rien (aucun onresult déclenché).
+      clearTimeout(window._silenceTimer);
+      window._silenceTimer = setTimeout(() => {
+        G("btn-rec-stop").click();
+      }, 4000);
       // Filet de sécurité : toutes les 500ms, on garantit que finalTx ne
       // soit jamais en retard sur lastFullTx (ce qui est affiché à l'écran),
       // peu importe la séquence exacte d'événements Web Speech reçus.
@@ -1227,6 +1241,14 @@ async function startRecog() {
 
     try {
       window._srListener = await SRPlugin.addListener("partialResult", data => {
+        // Même logique de minuteur de silence que pour webkitSpeechRecognition :
+        // on relance le minuteur à chaque résultat partiel reçu, et on
+        // déclenche le bouton stop si rien n'arrive avant 4 secondes.
+        clearTimeout(window._silenceTimer);
+        window._silenceTimer = setTimeout(() => {
+          G("btn-rec-stop").click();
+        }, 4000);
+
         const txt = data.value ? data.value.trim() : "";
         if (txt.length >= lastFullTx.length) { lastFullTx = txt; finalTx = txt; }
         G("transcript").textContent = lastFullTx || "...";
@@ -1256,6 +1278,12 @@ async function startRecog() {
         popup: false,
         silenceThreshold: 3500
       });
+      // Démarre aussi le minuteur de silence dès le départ, pour couvrir
+      // le cas où l'enfant ne dit jamais rien (aucun partialResult déclenché).
+      clearTimeout(window._silenceTimer);
+      window._silenceTimer = setTimeout(() => {
+        G("btn-rec-stop").click();
+      }, 4000);
     } catch(e) {
       G("rec-status").textContent = "خطأ في بدء التعرف: " + (e.message || e);
       G("mic-ring").classList.remove("on");
@@ -1271,6 +1299,7 @@ G("btn-rec-start").addEventListener("click", () => {
 });
 
 G("btn-rec-stop").addEventListener("click", () => {
+  clearTimeout(window._silenceTimer);
   window._recogActive = false;
   if (recog) { try { recog.stop(); } catch(e) {} recog = null; }
   const SRPlugin = window.Capacitor?.Plugins?.SpeechRecognition;
