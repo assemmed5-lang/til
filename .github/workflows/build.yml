@@ -49,6 +49,27 @@ jobs:
           echo "=== Contenu de android/app/src/main/assets/public/data/ apres cap sync ==="
           ls -la android/app/src/main/assets/public/data/ || echo "ERREUR: data/ absent dans les assets Android apres cap sync"
 
+          echo "=== app/build.gradle dependencies avant patch ==="
+          grep -A 20 "dependencies {" android/app/build.gradle | head -30
+          echo "=== settings.gradle avant patch ==="
+          cat android/settings.gradle
+
+          # Inject plugin manually if cap sync didn't do it
+          if ! grep -q "capacitor-speech-recognition" android/app/build.gradle; then
+            echo "Plugin absent du build.gradle, injection manuelle..."
+            sed -i "/dependencies {/a\\    implementation project(':capacitor-speech-recognition')" android/app/build.gradle
+          fi
+          if ! grep -q "capacitor-speech-recognition" android/settings.gradle; then
+            echo "Plugin absent du settings.gradle, injection manuelle..."
+            echo "include ':capacitor-speech-recognition'" >> android/settings.gradle
+            echo "project(':capacitor-speech-recognition').projectDir = new File('../node_modules/@capgo/capacitor-speech-recognition/android')" >> android/settings.gradle
+          fi
+
+          echo "=== app/build.gradle dependencies apres patch ==="
+          grep -A 20 "dependencies {" android/app/build.gradle | head -30
+          echo "=== settings.gradle apres patch ==="
+          cat android/settings.gradle
+
           GRADLE_FILE="android/app/build.gradle"
           sed -i "s/versionCode [0-9]*/versionCode ${{ github.run_number }}/" "$GRADLE_FILE"
           sed -i "s/versionName \"[^\"]*\"/versionName \"1.0.${{ github.run_number }}\"/" "$GRADLE_FILE"
@@ -79,7 +100,6 @@ jobs:
           JAVAEOF
           cp MainActivity.java android/app/src/main/java/com/tilawa/sourate/MainActivity.java
           cp tilawa.jks android/app/tilawa.jks
-          npx cap sync android
           cd android
           chmod +x gradlew
           ./gradlew assembleRelease \
