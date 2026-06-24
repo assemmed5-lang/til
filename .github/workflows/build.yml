@@ -10,63 +10,17 @@ jobs:
       - uses: actions/setup-java@v4
         with: { java-version: '21', distribution: 'temurin' }
       - name: Decode keystore
-        run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > tilawa.jks
-      - name: Write patch scripts
-        run: |
-          cat > /tmp/patch_settings.py << 'EOF'
-          content = open('android/settings.gradle').read()
-          if 'capacitor-speech-recognition' not in content:
-              with open('android/settings.gradle', 'a') as f:
-                  f.write("\ninclude ':capacitor-speech-recognition'\n")
-                  f.write("project(':capacitor-speech-recognition').projectDir = new File('../node_modules/@capgo/capacitor-speech-recognition/android')\n")
-          EOF
-          cat > /tmp/write_main.py << 'EOF'
-          code = """package com.tilawa.sourate;
-          import com.getcapacitor.BridgeActivity;
-          import android.os.Bundle;
-          import android.webkit.PermissionRequest;
-          import android.webkit.WebChromeClient;
-          import android.webkit.WebView;
-          import ee.forgr.speech.SpeechRecognition;
-          public class MainActivity extends BridgeActivity {
-              @Override
-              public void onCreate(Bundle savedInstanceState) {
-                  registerPlugin(SpeechRecognition.class);
-                  super.onCreate(savedInstanceState);
-                  WebView webView = getBridge().getWebView();
-                  webView.setWebChromeClient(new WebChromeClient() {
-                      @Override
-                      public void onPermissionRequest(PermissionRequest request) {
-                          request.grant(request.getResources());
-                      }
-                  });
-              }
-          }
-          """
-          import textwrap
-          code = textwrap.dedent(code)
-          open('android/app/src/main/java/com/tilawa/sourate/MainActivity.java', 'w').write(code)
-          EOF
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > tilawa.jks
       - name: Build and Patch
         run: |
           mkdir -p www
           cp index.html www/
-
-          echo "=== Contenu de la racine du repo ==="
-          ls -la
-
-          echo "=== Contenu du dossier data/ ==="
-          ls -la data/ || echo "ERREUR: le dossier data/ n'existe pas"
-
           cp -r data www/
 
           if [ ! -f "www/data/banque_sourates.js" ]; then
-            echo "ERREUR FATALE: www/data/banque_sourates.js est absent."
+            echo "ERREUR FATALE: banque_sourates.js absent"
             exit 1
           fi
-          echo "OK: www/data/banque_sourates.js present, taille:"
-          wc -c www/data/banque_sourates.js
 
           cp *.mp3 www/ 2>/dev/null || true
           echo '{"name":"tilawa","version":"1.0.0","private":true}' > package.json
@@ -75,22 +29,6 @@ jobs:
           npx cap add android
           npx cap sync android
 
-          echo "=== settings.gradle avant patch ==="
-          cat android/settings.gradle
-          echo "=== build.gradle avant patch ==="
-          grep -A 20 "dependencies {" android/app/build.gradle | head -30
-
-          python3 /tmp/patch_settings.py
-
-          if ! grep -q "capacitor-speech-recognition" android/app/build.gradle; then
-            sed -i "/dependencies {/a\\    implementation project(':capacitor-speech-recognition')" android/app/build.gradle
-          fi
-
-          echo "=== settings.gradle apres patch ==="
-          cat android/settings.gradle
-          echo "=== build.gradle apres patch ==="
-          grep -A 20 "dependencies {" android/app/build.gradle | head -30
-
           GRADLE_FILE="android/app/build.gradle"
           sed -i "s/versionCode [0-9]*/versionCode ${{ github.run_number }}/" "$GRADLE_FILE"
           sed -i "s/versionName \"[^\"]*\"/versionName \"1.0.${{ github.run_number }}\"/" "$GRADLE_FILE"
@@ -98,7 +36,7 @@ jobs:
           MANIFEST=$(find android/app -name "AndroidManifest.xml" | head -1)
           sed -i 's|<application|<uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>\n    <application|' "$MANIFEST"
 
-          python3 /tmp/write_main.py
+          python3 write_main.py
 
           cp tilawa.jks android/app/tilawa.jks
           cd android
