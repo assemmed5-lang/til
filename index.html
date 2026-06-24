@@ -1200,10 +1200,6 @@ async function startRecog() {
     try {
       window._recogActive = true;
       recog.start();
-      clearTimeout(window._silenceTimer);
-      window._silenceTimer = setTimeout(() => {
-        G("btn-rec-stop").click();
-      }, 4000);
       if (window._recogWatchdog) clearInterval(window._recogWatchdog);
       window._recogWatchdog = setInterval(() => {
         if (!window._recogActive) { clearInterval(window._recogWatchdog); return; }
