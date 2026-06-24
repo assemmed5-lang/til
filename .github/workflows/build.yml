@@ -79,6 +79,7 @@ jobs:
           JAVAEOF
           cp MainActivity.java android/app/src/main/java/com/tilawa/sourate/MainActivity.java
           cp tilawa.jks android/app/tilawa.jks
+          npx cap sync android
           cd android
           chmod +x gradlew
           ./gradlew assembleRelease \
