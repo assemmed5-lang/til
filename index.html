@@ -1000,6 +1000,7 @@ function tick() {
     window._pauseSilencePending = false;
     G("transcript").textContent = "";
     G("transcript").style.display = "none";
+    startRecog();
 
     const SRPlugin = window.Capacitor?.Plugins?.SpeechRecognition;
     const WebSR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -1159,37 +1160,22 @@ function tick() {
         window._pauseWebRecog = null;
       }
 
-      window._pauseEvalFinal && window._pauseEvalFinal();
-
-      // Pour Capacitor : attendre readyForNextSession avant de relancer tick()
-      // Pour Web/aucun : relancer immédiatement après un court délai
-      function _proceedAfterReady() {
-        if (window._pauseCapReadyListener) { try { window._pauseCapReadyListener.remove(); } catch(e){} window._pauseCapReadyListener = null; }
-        const el = G("current-word");
-        el.innerHTML = ""; el.style.fontSize = ""; el.style.color = "";
-        el.textContent = "—";
-        document.body.style.background="var(--bg)";
-        window._pauseSilencePending=false;
-        tick();
+// Arrêter le micro exactement comme btn-rec-stop
+      window._recogActive = false;
+      const SRPlugin2 = window.Capacitor?.Plugins?.SpeechRecognition;
+      if (SRPlugin2) {
+        try { SRPlugin2.stop(); } catch(e) {}
+        if (window._srListener) { try { window._srListener.remove(); } catch(e){} window._srListener = null; }
+        if (window._srListenerState) { try { window._srListenerState.remove(); } catch(e){} window._srListenerState = null; }
+        if (window._srSegListener) { try { window._srSegListener.remove(); } catch(e){} window._srSegListener = null; }
       }
-
-      if (useCapacitor) {
-        // Attendre readyForNextSession (max 2s)
-        setTimeout(() => {
-          if (window._pauseCapReady) { _proceedAfterReady(); return; }
-          let waited = 0;
-          const checkInterval = setInterval(() => {
-            waited += 100;
-            if (window._pauseCapReady || waited >= 1500) {
-              clearInterval(checkInterval);
-              _proceedAfterReady();
-            }
-          }, 100);
-        }, 600);
-      } else {
-        // Web ou aucun moteur : court délai d'affichage du résultat puis tick()
-        setTimeout(_proceedAfterReady, 1200);
-      }
+      if (lastFullTx.trim().length >= finalTx.trim().length) finalTx = lastFullTx.trim();
+      const el = G("current-word");
+      el.innerHTML = ""; el.style.fontSize = ""; el.style.color = "";
+      el.textContent = "—";
+      document.body.style.background = "var(--bg)";
+      window._pauseSilencePending = false;
+      setTimeout(() => tick(), 800);
     }, pauseDur * 0.99);
     } // end afterVersePlay
   });
