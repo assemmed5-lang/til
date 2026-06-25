@@ -1001,7 +1001,7 @@ function tick() {
     const win = window._activeWindow;
     const segDur = win ? Math.max((win.end - win.start) * 1000, 600) : 600;
     const rate = (phase === "listen") ? G("audio-player").playbackRate : 1.0;
-    const pauseDur = (segDur / rate) * 1.5;
+    const pauseDur = Math.max((segDur / rate) * 1.5, 6000);
 
     if (window._pauseTO) { clearTimeout(window._pauseTO); window._pauseTO = null; }
     window._pauseEnded = false;
@@ -1075,20 +1075,21 @@ function tick() {
         window._pauseCapReady = true;
       }).then(l => { window._pauseCapReadyListener = l; });
 
-      // stop() préventif pour s'assurer que le moteur est IDLE, puis start() après délai
-      try { SRPlugin.stop(); } catch(e) {}
-      setTimeout(() => {
+      // CORRECTIF: stop() puis start() en chaîne Promise, sans délai arbitraire
+      SRPlugin.stop().catch(() => {}).then(() => {
         if (!window._pauseCapActive) return;
-        SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10, allowForSilence: 8000 })
-          .then((res) => {
-            window._pauseCapReady = false;
-            dbg("PAUSE CAP: start() RÉUSSI -> " + JSON.stringify(res || {}));
-          })
-          .catch(e => {
-            window._pauseCapReady = true;
-            dbg("PAUSE CAP: start() ÉCHEC -> " + (e && (e.message || e.code || JSON.stringify(e))));
-          });
-      }, 500);
+        return SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10, allowForSilence: 8000 });
+      }).then((res) => {
+        window._pauseCapReady = false;
+        dbg("PAUSE CAP: start() RÉUSSI -> " + JSON.stringify(res || {}));
+        setWord("🎤");
+      }).catch(e => {
+        window._pauseCapReady = true;
+        dbg("PAUSE CAP: start() ÉCHEC -> " + (e && (e.message || e.code || JSON.stringify(e))));
+        setWord("⚠️");
+        G("transcript").textContent = "خطأ في الميكروفون";
+        G("transcript").style.display = "block";
+      });
 
     } else if ((phase === "listen" || phase === "retry_listen") && useWeb) {
       /* ══ WEB FALLBACK (PC / navigateur Chrome) ══ */
