@@ -1593,7 +1593,7 @@ function startReviewSession(suraIdx) {
   G("card-result").classList.add("hidden");
   buildRevProgressTrack();
 
-  revListenCurrentVerse();
+  revStartExamSingle(0);
 }
 
 function showRevPhaseLabel(txt) {
@@ -1715,7 +1715,7 @@ function revEvaluateSingle() {
       if (next < revVerses.length) {
         revStartExamSingle(next);
       } else {
-        revPlayAllThenExamAll();
+        revStartExamAll();
       }
     }, 2800);
   } else {
