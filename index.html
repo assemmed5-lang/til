@@ -1087,74 +1087,104 @@ G("btn-listen-stop").addEventListener("click", () => {
   G("rep-state").textContent = "متوقف — اضغط للمتابعة";
 });
 
-function stopRecog() {
-  window._recogActive = false;
-  if (recog) {
-    try { recog.stop(); } catch(e) {}
-    recog = null;
-  }
-  if (lastFullTx.trim().length >= finalTx.trim().length) finalTx = lastFullTx.trim();
-}
+/* ═══════════════════════════════════════════════════════
+   RECONNAISSANCE VOCALE — MediaRecorder + Whisper
+   Aucune dépendance Android SpeechRecognizer, aucun timeout.
+   ═══════════════════════════════════════════════════════ */
+const WHISPER_KEY = "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"; // ← clé Groq gratuite
+const CHUNK_MS    = 5000; // envoie un chunk toutes les 5 secondes
+
+let _mrStream   = null;
+let _mrRecorder = null;
+let _mrChunks   = [];
+let _mrTimer    = null;
 
 async function startRecog() {
   finalTx = ""; lastFullTx = "";
   window._recogActive = true;
+  G("mic-ring").classList.add("on");
+  G("rec-status").textContent = "جارٍ الاستماع...";
+  G("transcript").textContent = "...";
+  G("transcript").style.display = "block";
+  setWord("—");
 
-  const WebSR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!WebSR) {
-    G("rec-status").textContent = "reconnaissance vocale non disponible";
+  try {
+    _mrStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch(e) {
+    G("rec-status").textContent = "لا يمكن الوصول للميكروفون: " + e.message;
     return;
   }
 
-  if (recog) { try { recog.stop(); } catch(e) {} recog = null; }
-
-  recog = new WebSR();
-  recog.lang = "ar-SA";
-  recog.continuous = true;
-  recog.interimResults = true;
-  recog.maxAlternatives = 1;
-
-  recog.onresult = e => {
-    let interim = "", final = "";
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      const t = e.results[i][0].transcript;
-      if (e.results[i].isFinal) final += t + " ";
-      else interim += t;
-    }
-    if (final) {
-      lastFullTx = (lastFullTx + " " + final).trim();
-      finalTx = lastFullTx;
-    }
-    const display = (lastFullTx + " " + interim).trim();
-    G("transcript").textContent = display || "...";
-    G("transcript").style.display = "block";
-    const mot = display.split(/\s+/).filter(Boolean).slice(-1)[0];
-    if (mot) setWord(mot);
-  };
-
-  recog.onerror = e => {
-    if (e.error === "no-speech" || e.error === "aborted") return;
-    G("rec-status").textContent = "erreur: " + e.error;
-  };
-
-  recog.onend = () => {
+  function startChunk() {
     if (!window._recogActive) return;
-    // Redémarrage automatique après silence — accumule sans réinitialiser
-    setTimeout(() => {
-      if (!window._recogActive) return;
-      try { recog.start(); } catch(e) {}
-    }, 150);
-  };
+    _mrChunks = [];
+    const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+      ? "audio/webm;codecs=opus"
+      : "audio/webm";
+    _mrRecorder = new MediaRecorder(_mrStream, { mimeType });
 
-  G("mic-ring").classList.add("on");
-  G("rec-status").textContent = "جارٍ الاستماع...";
-  G("transcript").style.display = "block";
-  G("transcript").textContent = "...";
-  setWord("—");
+    _mrRecorder.ondataavailable = e => {
+      if (e.data && e.data.size > 0) _mrChunks.push(e.data);
+    };
 
-  try { recog.start(); } catch(e) {
-    G("rec-status").textContent = "خطأ: " + e.message;
+    _mrRecorder.onstop = async () => {
+      if (!_mrChunks.length) { if (window._recogActive) startChunk(); return; }
+      const blob = new Blob(_mrChunks, { type: _mrRecorder.mimeType });
+      _mrChunks = [];
+
+      // Envoyer à Whisper
+      try {
+        const fd = new FormData();
+        fd.append("file", blob, "audio.webm");
+        fd.append("model", "whisper-large-v3");
+        fd.append("language", "ar");
+        const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+          method: "POST",
+          headers: { Authorization: "Bearer " + WHISPER_KEY },
+          body: fd
+        });
+        const json = await res.json();
+        const text = (json.text || "").trim();
+        if (text) {
+          lastFullTx = (lastFullTx + " " + text).trim();
+          finalTx    = lastFullTx;
+          G("transcript").textContent = lastFullTx;
+          const mot = lastFullTx.split(/\s+/).filter(Boolean).slice(-1)[0];
+          if (mot) setWord(mot);
+        }
+      } catch(err) {
+        G("rec-status").textContent = "خطأ Whisper: " + err.message;
+      }
+
+      // Redémarrer le chunk suivant automatiquement
+      if (window._recogActive) startChunk();
+    };
+
+    _mrRecorder.start();
+    // Arrêter ce chunk après CHUNK_MS ms → onstop → envoi → nouveau chunk
+    _mrTimer = setTimeout(() => {
+      if (_mrRecorder && _mrRecorder.state === "recording") {
+        _mrRecorder.stop();
+      }
+    }, CHUNK_MS);
   }
+
+  startChunk();
+}
+
+function stopRecog() {
+  window._recogActive = false;
+  if (_mrTimer) { clearTimeout(_mrTimer); _mrTimer = null; }
+  if (_mrRecorder && _mrRecorder.state === "recording") {
+    try { _mrRecorder.stop(); } catch(e) {}
+  }
+  _mrRecorder = null;
+  if (_mrStream) {
+    _mrStream.getTracks().forEach(t => t.stop());
+    _mrStream = null;
+  }
+  if (lastFullTx.trim().length >= finalTx.trim().length) finalTx = lastFullTx.trim();
+  G("mic-ring").classList.remove("on");
 }
 G("btn-rec-start").addEventListener("click", () => {
   G("btn-rec-start").classList.add("hidden");
