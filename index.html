@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -210,6 +209,7 @@ audio { position:fixed; bottom:-100px; left:-100px; width:1px; height:1px; }
   <button class="btn btn-green hidden" id="btn-rec-stop">✅</button>
   <button class="btn btn-ghost hidden" id="btn-restart">↩</button>
 </div>
+<div id="debug-pause" style="position:fixed; top:0; left:0; right:0; z-index:99999; background:rgba(0,80,0,0.9); color:#0f0; font-family:monospace; font-size:13px; padding:4px 8px; direction:ltr; text-align:left; white-space:pre-wrap; max-height:30vh; overflow-y:auto;"></div>
 
 <div id="current-word-label" style="display:none"></div>
 <div id="card-setup" style="display:none"></div>
@@ -240,6 +240,19 @@ audio { position:fixed; bottom:-100px; left:-100px; width:1px; height:1px; }
 </div>
 <script>
 const G = id => document.getElementById(id);
+
+/* ── DIAGNOSTIC TEMPORAIRE — à retirer une fois le bug du micro en pause résolu ── */
+function dbg(msg) {
+  try {
+    const el = G("debug-pause");
+    if (!el) return;
+    const t = new Date().toLocaleTimeString();
+    el.textContent = "[" + t + "] " + msg + "\n" + el.textContent;
+    // garder seulement les 25 dernières lignes pour ne pas saturer l'affichage
+    const lines = el.textContent.split("\n");
+    if (lines.length > 25) el.textContent = lines.slice(0, 25).join("\n");
+  } catch(e) {}
+}
 
 /* ── Auto-fit texte : agrandit/réduit la police pour remplir le cadre #screen
    au maximum, dans les deux dimensions (largeur ET hauteur), sans déborder.
@@ -990,6 +1003,7 @@ function tick() {
     G("transcript").style.display = "none";
 
     const SRPlugin = window.Capacitor?.Plugins?.SpeechRecognition;
+    dbg("afterVersePlay: phase=" + phase + " SRPlugin=" + (SRPlugin ? "présent" : "ABSENT/undefined"));
 
     if ((phase === "listen" || phase === "retry_listen") && SRPlugin) {
       const expVi = phase === "retry_listen" ? (retryMissing[0] ?? curVerseIdx) : curVerseIdx;
@@ -1015,12 +1029,15 @@ function tick() {
       window._pauseCapActive = true;
       window._pauseCapReady = true; // true tant qu'aucun start() n'est en attente de readyForNextSession
 
+      dbg("PAUSE: entrée dans le bloc, SRPlugin=" + (SRPlugin ? "OK" : "ABSENT"));
+
       function _pauseUpdateDisplay() {
         const mot = heard.split(/\s+/).filter(Boolean).slice(-1)[0];
         if (mot) { setWord(mot); G("transcript").textContent = heard; G("transcript").style.display = "block"; }
       }
 
       SRPlugin.addListener("partialResults", data => {
+        dbg("PAUSE partialResults: " + JSON.stringify(data));
         if (!window._pauseCapActive) return;
         const txt = (data.matches && data.matches[0]) ? data.matches[0].trim() : "";
         if (txt.length >= heard.length) heard = txt;
@@ -1028,6 +1045,7 @@ function tick() {
       }).then(l => { window._pauseCapListener = l; });
 
       SRPlugin.addListener("segmentResults", data => {
+        dbg("PAUSE segmentResults: " + JSON.stringify(data));
         if (!window._pauseCapActive) return;
         const seg = (data.matches && data.matches[0]) ? data.matches[0].trim() : "";
         if (seg) {
@@ -1038,20 +1056,29 @@ function tick() {
       }).then(l => { window._pauseCapSegListener = l; });
 
       SRPlugin.addListener("listeningState", state => {
+        dbg("PAUSE listeningState: " + JSON.stringify(state));
         if (!window._pauseCapActive) return;
         // Le mode segmenté natif (allowForSilence) gère la continuité lui-même :
         // on ne relance plus manuellement start() ici pour éviter de couper
         // une session que le moteur natif aurait gardée ouverte.
       }).then(l => { window._pauseCapListenerState = l; });
 
-      SRPlugin.addListener("readyForNextSession", () => {
+      SRPlugin.addListener("readyForNextSession", (data) => {
+        dbg("PAUSE readyForNextSession: " + JSON.stringify(data || {}));
         window._pauseCapReady = true;
       }).then(l => { window._pauseCapReadyListener = l; });
 
       window._pauseCapReady = false;
+      dbg("PAUSE: appel de start() avec allowForSilence=8000...");
       SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10, allowForSilence: 8000 })
-        .catch(e => { window._pauseCapReady = true; }); // si start() échoue, on ne bloquera pas le cycle suivant
+        .then((res) => { dbg("PAUSE: start() RÉUSSI -> " + JSON.stringify(res || {})); })
+        .catch(e => {
+          window._pauseCapReady = true;
+          dbg("PAUSE: start() ÉCHEC -> " + (e && (e.message || e.code || JSON.stringify(e))));
+        });
       window._pauseEvalFinal = _evalPauseFinal;
+    } else {
+      dbg("PAUSE: bloc ignoré (condition fausse) — phase=" + phase + " SRPlugin=" + (SRPlugin ? "présent" : "ABSENT"));
     }
 
     window._pauseTO = setTimeout(()=>{
