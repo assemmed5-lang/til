@@ -982,30 +982,19 @@ function tick() {
     const rate = (phase === "listen") ? G("audio-player").playbackRate : 1.0;
     const pauseDur = (segDur / rate) * 1.5;
 
-    const SRBrowser = window.SpeechRecognition || window.webkitSpeechRecognition;
-    // Annuler le cycle précédent proprement avant d'en démarrer un nouveau
     if (window._pauseTO) { clearTimeout(window._pauseTO); window._pauseTO = null; }
-    window._pauseEnded = true;
-    if (window._pauseRecog) { try { window._pauseRecog.stop(); } catch(e){} window._pauseRecog = null; }
     window._pauseEnded = false;
     window._pauseSilencePending = false;
     G("transcript").textContent = "";
     G("transcript").style.display = "none";
 
-    if ((phase === "listen" || phase === "retry_listen") && SRBrowser) {
-      const expVi = phase === "retry_listen" ? (retryMissing[0] ?? curVerseIdx) : curVerseIdx;
-      const expW = verses[expVi] ? verses[expVi].split(/\s+/).filter(Boolean).map(norm) : [];
-      let heard = ""; let gotSpeech = false;
-      // accumFinal persiste across les redémarrages du micro (silences) —
-      // c'est l'équivalent local de finalTx : ne JAMAIS la réinitialiser
-      // lors d'un redémarrage, sinon tout ce qui a été dit avant le dernier
-      // silence est perdu (bug historique de l'écran d'examen, désormais
-      // corrigé aussi ici).
-      let accumFinal = "";
-      const _pauseStart = Date.now();
-      window._pauseEnded = false;
+    const SRPlugin = window.Capacitor?.Plugins?.SpeechRecognition;
 
-     function _evalPauseFinal() {
+    if ((phase === "listen" || phase === "retry_listen") && SRPlugin) {
+      const expVi = phase === "retry_listen" ? (retryMissing[0] ?? curVerseIdx) : curVerseIdx;
+      let heard = "";
+
+      function _evalPauseFinal() {
         const displayedTxt = (G("transcript").textContent || "").trim();
         if (!displayedTxt || displayedTxt === "...") {
           document.body.style.background = "var(--bg)";
@@ -1013,64 +1002,43 @@ function tick() {
         }
         const hn = norm(displayedTxt);
         document.body.style.background = "var(--bg)";
-        // Toujours afficher le verset complet avec coloration (blanc=juste, rouge=raté)
         showVerseWithMisses([expVi], hn);
         return true;
       }
 
-      function _startPR() {
-        const pr = new SRBrowser();
-        pr.lang = "ar-SA"; pr.continuous = true; pr.interimResults = true;
-        pr.onresult = e => {
-          let im="";
-          for(let i=e.resultIndex;i<e.results.length;i++){if(e.results[i].isFinal)accumFinal+=e.results[i][0].transcript+" ";else im+=e.results[i][0].transcript;}
-          const txt=(accumFinal+im).trim();
-          if(txt.length >= heard.length){heard=txt;gotSpeech=true;}
-          const mot=heard.split(/\s+/).filter(Boolean).slice(-1)[0];
-          if(mot){setWord(mot);G("transcript").textContent=heard;G("transcript").style.display="block";}
-        };
-        pr.onend = () => {
-          if(!window._pauseRecog || window._pauseEnded) return;
-          // CRITIQUE : avant de redémarrer, on fige accumFinal sur le texte
-          // affiché le plus complet (heard), pour ne jamais perdre les mots
-          // "interim" qui n'avaient pas encore été marqués isFinal.
-          if (heard.trim().length >= accumFinal.trim().length) {
-            accumFinal = heard.trim() + " ";
-          }
-          // Toujours redémarrer le moteur tant que la pause globale n'est pas finie —
-          // webkitSpeechRecognition s'arrête seul après un court silence, ce n'est PAS
-          // la fin de la pause de 3s, juste la fin d'un cycle d'écoute interne.
-          setTimeout(()=>{
-            if (window._pauseEnded || !window._pauseRecog) return;
-            try{
-              const r=new SRBrowser(); r.lang="ar-SA"; r.continuous=true; r.interimResults=true;
-              r.onresult=pr.onresult; r.onend=pr.onend; window._pauseRecog=r; r.start();
-            }catch(e){}
-          },50);
-        };
-        window._pauseRecog = pr;
-        try{pr.start();}catch(e){}
-      }
-      _startPR();
+      if (window._pauseCapListener) { try { window._pauseCapListener.remove(); } catch(e){} window._pauseCapListener = null; }
+      if (window._pauseCapListenerState) { try { window._pauseCapListenerState.remove(); } catch(e){} window._pauseCapListenerState = null; }
+
+      window._pauseCapActive = true;
+      SRPlugin.addListener("partialResult", data => {
+        if (!window._pauseCapActive) return;
+        const txt = data.value ? data.value.trim() : "";
+        if (txt.length >= heard.length) heard = txt;
+        const mot = heard.split(/\s+/).filter(Boolean).slice(-1)[0];
+        if (mot) { setWord(mot); G("transcript").textContent = heard; G("transcript").style.display = "block"; }
+      }).then(l => { window._pauseCapListener = l; });
+
+      SRPlugin.addListener("listeningState", async state => {
+        if (!window._pauseCapActive) return;
+        if (state.status === "stopped") {
+          try { await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10 }); } catch(e) {}
+        }
+      }).then(l => { window._pauseCapListenerState = l; });
+
+      SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10 }).catch(e=>{});
       window._pauseEvalFinal = _evalPauseFinal;
     }
 
     window._pauseTO = setTimeout(()=>{
       window._pauseTO = null;
       window._pauseEnded = true;
-      const hadText = window._pauseEvalFinal ? window._pauseEvalFinal() : true;
-      if(window._pauseRecog){try{window._pauseRecog.stop();}catch(e){}window._pauseRecog=null;}
+      window._pauseCapActive = false;
+      if (window._pauseCapListener) { try { window._pauseCapListener.remove(); } catch(e){} window._pauseCapListener = null; }
+      if (window._pauseCapListenerState) { try { window._pauseCapListenerState.remove(); } catch(e){} window._pauseCapListenerState = null; }
+      const SRPlugin2 = window.Capacitor?.Plugins?.SpeechRecognition;
+      if (SRPlugin2) { try { SRPlugin2.stop(); } catch(e){} }
 
-      if (!hadText) {
-        // Rien affiché à l'écran → active le bouton pause, bloque l'app
-        setWord("⏸");
-        document.body.style.background="var(--bg)";
-        stopped = true;
-        G("btn-listen-start").disabled = false;
-        G("btn-listen-start").textContent = "▶";
-        window._pauseSilencePending = false;
-        return;
-      }
+      const hadText = window._pauseEvalFinal ? window._pauseEvalFinal() : true;
 
       setTimeout(() => {
         const el = G("current-word");
@@ -1117,13 +1085,6 @@ G("btn-listen-stop").addEventListener("click", () => {
   G("rep-state").textContent = "متوقف — اضغط للمتابعة";
 });
 
-/* ══════════════════════════════════════════════
-   SPEECH RECOGNITION — EXAM PHASE
-   Stratégie : webkitSpeechRecognition EN PRIORITÉ.
-   Elle fonctionne dans Chrome (PC) ET dans la WebView
-   Capacitor grâce à androidScheme:'https' (origine sécurisée).
-   Le plugin natif Capacitor n'est utilisé qu'en dernier recours.
-   ══════════════════════════════════════════════ */
 async function startRecog() {
   finalTx = ""; lastFullTx = "";
 
