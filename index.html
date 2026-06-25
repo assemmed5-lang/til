@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -1145,31 +1146,18 @@ function tick() {
       window._pauseTO = null;
       window._pauseEnded = true;
 
-      // Arrêter Capacitor
+      // Arrêter tous les moteurs de reconnaissance
       window._pauseCapActive = false;
       if (window._pauseCapListener) { try { window._pauseCapListener.remove(); } catch(e){} window._pauseCapListener = null; }
       if (window._pauseCapListenerState) { try { window._pauseCapListenerState.remove(); } catch(e){} window._pauseCapListenerState = null; }
       if (window._pauseCapSegListener) { try { window._pauseCapSegListener.remove(); } catch(e){} window._pauseCapSegListener = null; }
-      const SRPlugin2 = window.Capacitor?.Plugins?.SpeechRecognition;
-      if (SRPlugin2) { try { SRPlugin2.stop(); } catch(e){} }
-
-      // Arrêter Web fallback
       window._pauseWebActive = false;
       if (window._pauseWebRecog) {
         try { window._pauseWebRecog.stop(); } catch(e) {}
         window._pauseWebRecog = null;
       }
-
-// Arrêter le micro exactement comme btn-rec-stop
-      window._recogActive = false;
-      const SRPlugin2 = window.Capacitor?.Plugins?.SpeechRecognition;
-      if (SRPlugin2) {
-        try { SRPlugin2.stop(); } catch(e) {}
-        if (window._srListener) { try { window._srListener.remove(); } catch(e){} window._srListener = null; }
-        if (window._srListenerState) { try { window._srListenerState.remove(); } catch(e){} window._srListenerState = null; }
-        if (window._srSegListener) { try { window._srSegListener.remove(); } catch(e){} window._srSegListener = null; }
-      }
-      if (lastFullTx.trim().length >= finalTx.trim().length) finalTx = lastFullTx.trim();
+      // Arrêter le micro via stopRecog (même système que btn-rec-stop)
+      stopRecog();
       const el = G("current-word");
       el.innerHTML = ""; el.style.fontSize = ""; el.style.color = "";
       el.textContent = "—";
@@ -1212,6 +1200,18 @@ G("btn-listen-stop").addEventListener("click", () => {
   G("btn-listen-start").textContent = "▶";
   G("rep-state").textContent = "متوقف — اضغط للمتابعة";
 });
+
+function stopRecog() {
+  window._recogActive = false;
+  const SRP = window.Capacitor?.Plugins?.SpeechRecognition;
+  if (SRP) {
+    try { SRP.stop(); } catch(e) {}
+    if (window._srListener)      { try { window._srListener.remove(); }      catch(e){} window._srListener = null; }
+    if (window._srListenerState) { try { window._srListenerState.remove(); } catch(e){} window._srListenerState = null; }
+    if (window._srSegListener)   { try { window._srSegListener.remove(); }   catch(e){} window._srSegListener = null; }
+  }
+  if (lastFullTx.trim().length >= finalTx.trim().length) finalTx = lastFullTx.trim();
+}
 
 async function startRecog() {
   finalTx = ""; lastFullTx = "";
@@ -1283,19 +1283,11 @@ G("btn-rec-start").addEventListener("click", () => {
 });
 
 G("btn-rec-stop").addEventListener("click", () => {
-  window._recogActive = false;
-  const SRPlugin = window.Capacitor?.Plugins?.SpeechRecognition;
-  if (SRPlugin) {
-    try { SRPlugin.stop(); } catch(e) {}
-    if (window._srListener) { try { window._srListener.remove(); } catch(e){} window._srListener = null; }
-    if (window._srListenerState) { try { window._srListenerState.remove(); } catch(e){} window._srListenerState = null; }
-    if (window._srSegListener) { try { window._srSegListener.remove(); } catch(e){} window._srSegListener = null; }
-  }
+  stopRecog();
   G("mic-ring").classList.remove("on");
   G("btn-rec-stop").classList.add("hidden");
   G("btn-rec-start").classList.add("hidden");
   G("rec-status").textContent = "جارٍ التحليل...";
-  if (lastFullTx.trim().length >= finalTx.trim().length) finalTx = lastFullTx.trim() + " ";
   setTimeout(() => evaluate(), 1500);
 });
 function playGroupOnce(then) {
