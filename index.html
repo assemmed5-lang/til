@@ -1010,9 +1010,9 @@ function tick() {
       if (window._pauseCapListenerState) { try { window._pauseCapListenerState.remove(); } catch(e){} window._pauseCapListenerState = null; }
 
       window._pauseCapActive = true;
-      SRPlugin.addListener("partialResult", data => {
+      SRPlugin.addListener("partialResults", data => {
         if (!window._pauseCapActive) return;
-        const txt = data.value ? data.value.trim() : "";
+        const txt = (data.matches && data.matches[0]) ? data.matches[0].trim() : "";
         if (txt.length >= heard.length) heard = txt;
         const mot = heard.split(/\s+/).filter(Boolean).slice(-1)[0];
         if (mot) { setWord(mot); G("transcript").textContent = heard; G("transcript").style.display = "block"; }
@@ -1108,8 +1108,8 @@ async function startRecog() {
   window._recogActive = true;
 
   try {
-    window._srListener = await SRPlugin.addListener("partialResult", data => {
-      const txt = data.value ? data.value.trim() : "";
+    window._srListener = await SRPlugin.addListener("partialResults", data => {
+      const txt = (data.matches && data.matches[0]) ? data.matches[0].trim() : "";
       if (txt.length >= lastFullTx.length) { lastFullTx = txt; finalTx = txt; }
       G("transcript").textContent = lastFullTx || "...";
       G("transcript").style.display = "block";
