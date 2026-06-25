@@ -1146,12 +1146,7 @@ async function startRecog() {
     });
 
     window._srListenerState = await SRPlugin.addListener("listeningState", state => {
-      const st = state.status || state.state || "";
-      G("rec-status").textContent = "CAPGO - " + st;
-      if ((st === "stopped" || st === "inactive" || st === "notListening") && window._recogActive) {
-        SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10, allowForSilence: 8000 })
-          .catch(() => {});
-      }
+      G("rec-status").textContent = "CAPGO - " + (state.status || state.state || "");
     });
 
     await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10, continuousPTT: true });
