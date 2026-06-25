@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -1722,8 +1721,8 @@ function revEvaluateSingle() {
   } else {
     setTimeout(() => {
       setWord("—");
-      revRelistenVerse(revExamVerseIdx, () => revStartExamSingle(revExamVerseIdx));
-    }, 3500);
+      revStartExamSingle(revExamVerseIdx);
+    }, 2000);
   }
 }
 
@@ -1851,13 +1850,13 @@ function revEvaluateAll() {
   } else {
     box.classList.add("rtry");
     G("score-num").textContent = score + "%";
-    G("score-lbl").textContent = "لا بأس — نعيد الاستماع مرة أخرى";
-    G("score-msg").textContent = "ستستمع للسورة كاملة مجدداً ثم تُسمِّع";
+    G("score-lbl").textContent = "لا بأس — حاول مجدداً";
+    G("score-msg").textContent = "أعد التسميع مباشرة";
     setTimeout(() => {
       setWord("—");
       G("card-result").classList.add("hidden");
-      revPlayAllThenExamAll();
-    }, 3500);
+      revStartExamAll();
+    }, 2000);
   }
 }
 
