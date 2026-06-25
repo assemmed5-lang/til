@@ -1154,8 +1154,7 @@ async function startRecog() {
       }
     });
 
-    await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10, allowForSilence: 8000 });
-
+    await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10, continuousPTT: true });
   } catch(e) {
     G("rec-status").textContent = "خطأ: " + (e.message || e);
     G("mic-ring").classList.remove("on");
