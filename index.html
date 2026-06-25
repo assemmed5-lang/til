@@ -1021,11 +1021,11 @@ function tick() {
       SRPlugin.addListener("listeningState", async state => {
         if (!window._pauseCapActive) return;
         if (state.status === "stopped") {
-          try { await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10 }); } catch(e) {}
+          try { await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10, allowForSilence: 8000 }); } catch(e) {}
         }
       }).then(l => { window._pauseCapListenerState = l; });
 
-      SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10 }).catch(e=>{});
+      SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10, allowForSilence: 8000 }).catch(e=>{});
       window._pauseEvalFinal = _evalPauseFinal;
     }
 
@@ -1120,17 +1120,17 @@ async function startRecog() {
       G("rec-status").textContent = "CAPGO - " + state.status;
       if (state.status === "stopped" && window._recogActive) {
         try {
-          await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10 });
+          await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10, allowForSilence: 8000 });
         } catch(e) {
           setTimeout(async () => {
             if (!window._recogActive) return;
-            try { await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10 }); } catch(e2) {}
+            try { await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10, allowForSilence: 8000 }); } catch(e2) {}
           }, 30);
         }
       }
     });
 
-    await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10 });
+    await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10, allowForSilence: 8000 });
 
   } catch(e) {
     G("rec-status").textContent = "خطأ: " + (e.message || e);
