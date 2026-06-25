@@ -1124,8 +1124,11 @@ async function startRecog() {
 
   try {
     window._srListener = await SRPlugin.addListener("partialResults", data => {
-      const txt = (data.matches && data.matches[0]) ? data.matches[0].trim() : "";
-      if (txt.length >= lastFullTx.length) { lastFullTx = txt; finalTx = txt; }
+      if (data.isRestarting) return;
+      const base = data.accumulatedText || "";
+      const cur  = (data.matches && data.matches[0]) ? data.matches[0].trim() : "";
+      const full = base ? (cur ? base + " " + cur : base) : cur;
+      if (full.length >= lastFullTx.length) { lastFullTx = full; finalTx = full; }
       G("transcript").textContent = lastFullTx || "...";
       G("transcript").style.display = "block";
       setWord(lastFullTx.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || "—");
@@ -1150,6 +1153,7 @@ async function startRecog() {
     });
 
     await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10, continuousPTT: true });
+    await SRPlugin.setPTTState({ held: true });
   } catch(e) {
     G("rec-status").textContent = "خطأ: " + (e.message || e);
     G("mic-ring").classList.remove("on");
