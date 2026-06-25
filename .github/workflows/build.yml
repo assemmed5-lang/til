@@ -27,6 +27,7 @@ jobs:
           npm install @capacitor/core@8 @capacitor/cli@8 @capacitor/android@8 @capgo/capacitor-speech-recognition
           python3 -c "import json; open('capacitor.config.json','w').write(json.dumps({'appId':'com.tilawa.sourate','appName':'Tilawa','webDir':'www','androidScheme':'https','android':{'allowMixedContent':True}}, indent=2))"
           npx cap add android
+          python3 write_main.py
           npx cap sync android
 
           GRADLE_FILE="android/app/build.gradle"
@@ -36,9 +37,7 @@ jobs:
           MANIFEST=$(find android/app -name "AndroidManifest.xml" | head -1)
           sed -i 's|<application|<uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>\n    <application|' "$MANIFEST"
 
-          python3 write_main.py
-
-          cp tilawa.jks android/app/tilawa.jks
+                  cp tilawa.jks android/app/tilawa.jks
           cd android
           chmod +x gradlew
           ./gradlew assembleRelease \
