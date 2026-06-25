@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -1008,24 +1009,48 @@ function tick() {
 
       if (window._pauseCapListener) { try { window._pauseCapListener.remove(); } catch(e){} window._pauseCapListener = null; }
       if (window._pauseCapListenerState) { try { window._pauseCapListenerState.remove(); } catch(e){} window._pauseCapListenerState = null; }
+      if (window._pauseCapSegListener) { try { window._pauseCapSegListener.remove(); } catch(e){} window._pauseCapSegListener = null; }
+      if (window._pauseCapReadyListener) { try { window._pauseCapReadyListener.remove(); } catch(e){} window._pauseCapReadyListener = null; }
 
       window._pauseCapActive = true;
+      window._pauseCapReady = true; // true tant qu'aucun start() n'est en attente de readyForNextSession
+
+      function _pauseUpdateDisplay() {
+        const mot = heard.split(/\s+/).filter(Boolean).slice(-1)[0];
+        if (mot) { setWord(mot); G("transcript").textContent = heard; G("transcript").style.display = "block"; }
+      }
+
       SRPlugin.addListener("partialResults", data => {
         if (!window._pauseCapActive) return;
         const txt = (data.matches && data.matches[0]) ? data.matches[0].trim() : "";
         if (txt.length >= heard.length) heard = txt;
-        const mot = heard.split(/\s+/).filter(Boolean).slice(-1)[0];
-        if (mot) { setWord(mot); G("transcript").textContent = heard; G("transcript").style.display = "block"; }
+        _pauseUpdateDisplay();
       }).then(l => { window._pauseCapListener = l; });
 
-      SRPlugin.addListener("listeningState", async state => {
+      SRPlugin.addListener("segmentResults", data => {
         if (!window._pauseCapActive) return;
-        if (state.status === "stopped") {
-          try { await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10, allowForSilence: 8000 }); } catch(e) {}
+        const seg = (data.matches && data.matches[0]) ? data.matches[0].trim() : "";
+        if (seg) {
+          // Cumuler les segments successifs (mode segmenté natif) au lieu de repartir de zéro
+          heard = (heard ? heard + " " : "") + seg;
+          _pauseUpdateDisplay();
         }
+      }).then(l => { window._pauseCapSegListener = l; });
+
+      SRPlugin.addListener("listeningState", state => {
+        if (!window._pauseCapActive) return;
+        // Le mode segmenté natif (allowForSilence) gère la continuité lui-même :
+        // on ne relance plus manuellement start() ici pour éviter de couper
+        // une session que le moteur natif aurait gardée ouverte.
       }).then(l => { window._pauseCapListenerState = l; });
 
-      SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10, allowForSilence: 8000 }).catch(e=>{});
+      SRPlugin.addListener("readyForNextSession", () => {
+        window._pauseCapReady = true;
+      }).then(l => { window._pauseCapReadyListener = l; });
+
+      window._pauseCapReady = false;
+      SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10, allowForSilence: 8000 })
+        .catch(e => { window._pauseCapReady = true; }); // si start() échoue, on ne bloquera pas le cycle suivant
       window._pauseEvalFinal = _evalPauseFinal;
     }
 
@@ -1035,18 +1060,36 @@ function tick() {
       window._pauseCapActive = false;
       if (window._pauseCapListener) { try { window._pauseCapListener.remove(); } catch(e){} window._pauseCapListener = null; }
       if (window._pauseCapListenerState) { try { window._pauseCapListenerState.remove(); } catch(e){} window._pauseCapListenerState = null; }
+      if (window._pauseCapSegListener) { try { window._pauseCapSegListener.remove(); } catch(e){} window._pauseCapSegListener = null; }
       const SRPlugin2 = window.Capacitor?.Plugins?.SpeechRecognition;
       if (SRPlugin2) { try { SRPlugin2.stop(); } catch(e){} }
 
       const hadText = window._pauseEvalFinal ? window._pauseEvalFinal() : true;
 
-      setTimeout(() => {
+      // Attendre que le plugin natif confirme qu'il est revenu à IDLE
+      // (événement readyForNextSession) avant de relancer le cycle suivant,
+      // au lieu d'un délai fixe arbitraire qui risquait d'arriver avant que
+      // start() ne soit réellement accepté par le moteur (état non-IDLE).
+      function _proceedAfterReady() {
+        if (window._pauseCapReadyListener) { try { window._pauseCapReadyListener.remove(); } catch(e){} window._pauseCapReadyListener = null; }
         const el = G("current-word");
         el.innerHTML = ""; el.style.fontSize = ""; el.style.color = "";
         el.textContent = "—";
         document.body.style.background="var(--bg)";
         window._pauseSilencePending=false;
         tick();
+      }
+
+      setTimeout(() => {
+        if (window._pauseCapReady) { _proceedAfterReady(); return; }
+        let waited = 0;
+        const checkInterval = setInterval(() => {
+          waited += 100;
+          if (window._pauseCapReady || waited >= 1500) {
+            clearInterval(checkInterval);
+            _proceedAfterReady();
+          }
+        }, 100);
       }, 2200);
     }, pauseDur * 0.99);
     } // end afterVersePlay
@@ -1099,6 +1142,7 @@ async function startRecog() {
   try { await SRPlugin.requestPermissions(); } catch(e) {}
   if (window._srListener) { try { window._srListener.remove(); } catch(e){} window._srListener = null; }
   if (window._srListenerState) { try { window._srListenerState.remove(); } catch(e){} window._srListenerState = null; }
+  if (window._srSegListener) { try { window._srSegListener.remove(); } catch(e){} window._srSegListener = null; }
 
   G("mic-ring").classList.add("on");
   G("rec-status").textContent = "CAPGO - جارٍ الاستماع...";
@@ -1116,18 +1160,26 @@ async function startRecog() {
       setWord(lastFullTx.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || "—");
     });
 
-    window._srListenerState = await SRPlugin.addListener("listeningState", async state => {
-      G("rec-status").textContent = "CAPGO - " + state.status;
-      if (state.status === "stopped" && window._recogActive) {
-        try {
-          await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10, allowForSilence: 8000 });
-        } catch(e) {
-          setTimeout(async () => {
-            if (!window._recogActive) return;
-            try { await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10, allowForSilence: 8000 }); } catch(e2) {}
-          }, 30);
-        }
+    window._srSegListener = await SRPlugin.addListener("segmentResults", data => {
+      // Mode segmenté natif (allowForSilence) : chaque segment est cumulé
+      // au texte déjà reconnu, pour ne jamais perdre le début d'un mot
+      // prononcé pile à la jointure entre deux segments.
+      const seg = (data.matches && data.matches[0]) ? data.matches[0].trim() : "";
+      if (seg) {
+        lastFullTx = (lastFullTx ? lastFullTx + " " : "") + seg;
+        finalTx = lastFullTx;
+        G("transcript").textContent = lastFullTx;
+        G("transcript").style.display = "block";
+        setWord(lastFullTx.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || "—");
       }
+    });
+
+    window._srListenerState = await SRPlugin.addListener("listeningState", state => {
+      G("rec-status").textContent = "CAPGO - " + (state.status || state.state || "");
+      // Le mode segmenté natif garde la session ouverte à travers les silences
+      // (EXTRA_SEGMENTED_SESSION via allowForSilence) : on ne relance plus
+      // manuellement start() ici, ce qui forçait une coupure/réouverture et
+      // tronquait le premier mot prononcé juste après.
     });
 
     await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10, allowForSilence: 8000 });
@@ -1152,6 +1204,7 @@ G("btn-rec-stop").addEventListener("click", () => {
     try { SRPlugin.stop(); } catch(e) {}
     if (window._srListener) { try { window._srListener.remove(); } catch(e){} window._srListener = null; }
     if (window._srListenerState) { try { window._srListenerState.remove(); } catch(e){} window._srListenerState = null; }
+    if (window._srSegListener) { try { window._srSegListener.remove(); } catch(e){} window._srSegListener = null; }
   }
   G("mic-ring").classList.remove("on");
   G("btn-rec-stop").classList.add("hidden");
