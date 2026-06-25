@@ -1089,76 +1089,71 @@ G("btn-listen-stop").addEventListener("click", () => {
 
 function stopRecog() {
   window._recogActive = false;
-  const SRP = window.Capacitor?.Plugins?.SpeechRecognition;
-  if (SRP) {
-    try { SRP.stop(); } catch(e) {}
-    if (window._srListener)      { try { window._srListener.remove(); }      catch(e){} window._srListener = null; }
-    if (window._srListenerState) { try { window._srListenerState.remove(); } catch(e){} window._srListenerState = null; }
-    if (window._srSegListener)   { try { window._srSegListener.remove(); }   catch(e){} window._srSegListener = null; }
+  if (recog) {
+    try { recog.stop(); } catch(e) {}
+    recog = null;
   }
   if (lastFullTx.trim().length >= finalTx.trim().length) finalTx = lastFullTx.trim();
 }
 
 async function startRecog() {
   finalTx = ""; lastFullTx = "";
+  window._recogActive = true;
 
-  const SRPlugin = window.Capacitor?.Plugins?.SpeechRecognition;
-  if (!SRPlugin) {
-    G("rec-status").textContent = "CAPGO NON DISPONIBLE";
-    G("btn-rec-stop").classList.add("hidden");
-    G("btn-rec-start").classList.remove("hidden");
+  const WebSR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!WebSR) {
+    G("rec-status").textContent = "reconnaissance vocale non disponible";
     return;
   }
 
-  try { await SRPlugin.requestPermissions(); } catch(e) {}
-  if (window._srListener) { try { window._srListener.remove(); } catch(e){} window._srListener = null; }
-  if (window._srListenerState) { try { window._srListenerState.remove(); } catch(e){} window._srListenerState = null; }
-  if (window._srSegListener) { try { window._srSegListener.remove(); } catch(e){} window._srSegListener = null; }
+  if (recog) { try { recog.stop(); } catch(e) {} recog = null; }
+
+  recog = new WebSR();
+  recog.lang = "ar-SA";
+  recog.continuous = true;
+  recog.interimResults = true;
+  recog.maxAlternatives = 1;
+
+  recog.onresult = e => {
+    let interim = "", final = "";
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript;
+      if (e.results[i].isFinal) final += t + " ";
+      else interim += t;
+    }
+    if (final) {
+      lastFullTx = (lastFullTx + " " + final).trim();
+      finalTx = lastFullTx;
+    }
+    const display = (lastFullTx + " " + interim).trim();
+    G("transcript").textContent = display || "...";
+    G("transcript").style.display = "block";
+    const mot = display.split(/\s+/).filter(Boolean).slice(-1)[0];
+    if (mot) setWord(mot);
+  };
+
+  recog.onerror = e => {
+    if (e.error === "no-speech" || e.error === "aborted") return;
+    G("rec-status").textContent = "erreur: " + e.error;
+  };
+
+  recog.onend = () => {
+    if (!window._recogActive) return;
+    // Redémarrage automatique après silence — accumule sans réinitialiser
+    setTimeout(() => {
+      if (!window._recogActive) return;
+      try { recog.start(); } catch(e) {}
+    }, 150);
+  };
 
   G("mic-ring").classList.add("on");
-  G("rec-status").textContent = "CAPGO - جارٍ الاستماع...";
+  G("rec-status").textContent = "جارٍ الاستماع...";
   G("transcript").style.display = "block";
   G("transcript").textContent = "...";
   setWord("—");
-  window._recogActive = true;
 
-  try {
-    window._srListener = await SRPlugin.addListener("partialResults", data => {
-      if (data.isRestarting) return;
-      const base = data.accumulatedText || "";
-      const cur  = (data.matches && data.matches[0]) ? data.matches[0].trim() : "";
-      const full = base ? (cur ? base + " " + cur : base) : cur;
-      if (full.length >= lastFullTx.length) { lastFullTx = full; finalTx = full; }
-      G("transcript").textContent = lastFullTx || "...";
-      G("transcript").style.display = "block";
-      setWord(lastFullTx.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || "—");
-    });
-
-    window._srSegListener = await SRPlugin.addListener("segmentResults", data => {
-      // Mode segmenté natif (allowForSilence) : chaque segment est cumulé
-      // au texte déjà reconnu, pour ne jamais perdre le début d'un mot
-      // prononcé pile à la jointure entre deux segments.
-      const seg = (data.matches && data.matches[0]) ? data.matches[0].trim() : "";
-      if (seg) {
-        lastFullTx = (lastFullTx ? lastFullTx + " " : "") + seg;
-        finalTx = lastFullTx;
-        G("transcript").textContent = lastFullTx;
-        G("transcript").style.display = "block";
-        setWord(lastFullTx.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || "—");
-      }
-    });
-
-    window._srListenerState = await SRPlugin.addListener("listeningState", state => {
-      G("rec-status").textContent = "CAPGO - " + (state.status || state.state || "");
-    });
-
-    await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10, continuousPTT: true });
-    await SRPlugin.setPTTState({ held: true });
-  } catch(e) {
-    G("rec-status").textContent = "خطأ: " + (e.message || e);
-    G("mic-ring").classList.remove("on");
-    G("btn-rec-stop").classList.add("hidden");
-    G("btn-rec-start").classList.remove("hidden");
+  try { recog.start(); } catch(e) {
+    G("rec-status").textContent = "خطأ: " + e.message;
   }
 }
 G("btn-rec-start").addEventListener("click", () => {
