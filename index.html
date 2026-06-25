@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -209,7 +210,7 @@ audio { position:fixed; bottom:-100px; left:-100px; width:1px; height:1px; }
   <button class="btn btn-green hidden" id="btn-rec-stop">✅</button>
   <button class="btn btn-ghost hidden" id="btn-restart">↩</button>
 </div>
-<div id="debug-pause" style="position:fixed; top:0; left:0; right:0; z-index:99999; background:rgba(0,80,0,0.9); color:#0f0; font-family:monospace; font-size:13px; padding:4px 8px; direction:ltr; text-align:left; white-space:pre-wrap; max-height:30vh; overflow-y:auto;"></div>
+<div id="debug-pause" style="display:none"></div>
 
 <div id="current-word-label" style="display:none"></div>
 <div id="card-setup" style="display:none"></div>
@@ -914,6 +915,12 @@ function stopPauseRecog() {
     try { window._pauseRecog.stop(); } catch(e) {}
     window._pauseRecog = null;
   }
+  // Stopper aussi le fallback web (PC / navigateur)
+  if (window._pauseWebRecog) {
+    try { window._pauseWebRecog.stop(); } catch(e) {}
+    window._pauseWebRecog = null;
+  }
+  window._pauseWebActive = false;
 }
 
 
@@ -1003,38 +1010,43 @@ function tick() {
     G("transcript").style.display = "none";
 
     const SRPlugin = window.Capacitor?.Plugins?.SpeechRecognition;
-    dbg("afterVersePlay: phase=" + phase + " SRPlugin=" + (SRPlugin ? "présent" : "ABSENT/undefined"));
+    const WebSR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const useCapacitor = !!(SRPlugin);
+    const useWeb = !useCapacitor && !!(WebSR);
+    dbg("afterVersePlay: phase=" + phase + " cap=" + useCapacitor + " web=" + useWeb);
 
-    if ((phase === "listen" || phase === "retry_listen") && SRPlugin) {
-      const expVi = phase === "retry_listen" ? (retryMissing[0] ?? curVerseIdx) : curVerseIdx;
-      let heard = "";
+    const expVi = phase === "retry_listen" ? (retryMissing[0] ?? curVerseIdx) : curVerseIdx;
+    let heard = "";
 
-      function _evalPauseFinal() {
-        const displayedTxt = (G("transcript").textContent || "").trim();
-        if (!displayedTxt || displayedTxt === "...") {
-          document.body.style.background = "var(--bg)";
-          return false;
-        }
-        const hn = norm(displayedTxt);
+    function _evalPauseFinal() {
+      const displayedTxt = (G("transcript").textContent || "").trim();
+      if (!displayedTxt || displayedTxt === "...") {
         document.body.style.background = "var(--bg)";
-        showVerseWithMisses([expVi], hn);
-        return true;
+        return false;
       }
+      const hn = norm(displayedTxt);
+      document.body.style.background = "var(--bg)";
+      showVerseWithMisses([expVi], hn);
+      return true;
+    }
+    window._pauseEvalFinal = _evalPauseFinal;
 
+    function _pauseUpdateDisplay() {
+      const mot = heard.split(/\s+/).filter(Boolean).slice(-1)[0];
+      if (mot) { setWord(mot); G("transcript").textContent = heard; G("transcript").style.display = "block"; }
+    }
+
+    if ((phase === "listen" || phase === "retry_listen") && useCapacitor) {
+      /* ══ CAPACITOR (Android APK) ══ */
       if (window._pauseCapListener) { try { window._pauseCapListener.remove(); } catch(e){} window._pauseCapListener = null; }
       if (window._pauseCapListenerState) { try { window._pauseCapListenerState.remove(); } catch(e){} window._pauseCapListenerState = null; }
       if (window._pauseCapSegListener) { try { window._pauseCapSegListener.remove(); } catch(e){} window._pauseCapSegListener = null; }
       if (window._pauseCapReadyListener) { try { window._pauseCapReadyListener.remove(); } catch(e){} window._pauseCapReadyListener = null; }
 
       window._pauseCapActive = true;
-      window._pauseCapReady = true; // true tant qu'aucun start() n'est en attente de readyForNextSession
+      window._pauseCapReady = false;
 
-      dbg("PAUSE: entrée dans le bloc, SRPlugin=" + (SRPlugin ? "OK" : "ABSENT"));
-
-      function _pauseUpdateDisplay() {
-        const mot = heard.split(/\s+/).filter(Boolean).slice(-1)[0];
-        if (mot) { setWord(mot); G("transcript").textContent = heard; G("transcript").style.display = "block"; }
-      }
+      dbg("PAUSE CAP: stop() préventif puis start()...");
 
       SRPlugin.addListener("partialResults", data => {
         dbg("PAUSE partialResults: " + JSON.stringify(data));
@@ -1049,7 +1061,6 @@ function tick() {
         if (!window._pauseCapActive) return;
         const seg = (data.matches && data.matches[0]) ? data.matches[0].trim() : "";
         if (seg) {
-          // Cumuler les segments successifs (mode segmenté natif) au lieu de repartir de zéro
           heard = (heard ? heard + " " : "") + seg;
           _pauseUpdateDisplay();
         }
@@ -1057,10 +1068,6 @@ function tick() {
 
       SRPlugin.addListener("listeningState", state => {
         dbg("PAUSE listeningState: " + JSON.stringify(state));
-        if (!window._pauseCapActive) return;
-        // Le mode segmenté natif (allowForSilence) gère la continuité lui-même :
-        // on ne relance plus manuellement start() ici pour éviter de couper
-        // une session que le moteur natif aurait gardée ouverte.
       }).then(l => { window._pauseCapListenerState = l; });
 
       SRPlugin.addListener("readyForNextSession", (data) => {
@@ -1068,22 +1075,83 @@ function tick() {
         window._pauseCapReady = true;
       }).then(l => { window._pauseCapReadyListener = l; });
 
-      window._pauseCapReady = false;
-      dbg("PAUSE: appel de start() avec allowForSilence=8000...");
-      SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10, allowForSilence: 8000 })
-        .then((res) => { dbg("PAUSE: start() RÉUSSI -> " + JSON.stringify(res || {})); })
-        .catch(e => {
-          window._pauseCapReady = true;
-          dbg("PAUSE: start() ÉCHEC -> " + (e && (e.message || e.code || JSON.stringify(e))));
-        });
-      window._pauseEvalFinal = _evalPauseFinal;
+      // stop() préventif pour s'assurer que le moteur est IDLE, puis start() après délai
+      try { SRPlugin.stop(); } catch(e) {}
+      setTimeout(() => {
+        if (!window._pauseCapActive) return;
+        SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10, allowForSilence: 8000 })
+          .then((res) => {
+            window._pauseCapReady = false;
+            dbg("PAUSE CAP: start() RÉUSSI -> " + JSON.stringify(res || {}));
+          })
+          .catch(e => {
+            window._pauseCapReady = true;
+            dbg("PAUSE CAP: start() ÉCHEC -> " + (e && (e.message || e.code || JSON.stringify(e))));
+          });
+      }, 500);
+
+    } else if ((phase === "listen" || phase === "retry_listen") && useWeb) {
+      /* ══ WEB FALLBACK (PC / navigateur Chrome) ══ */
+      dbg("PAUSE WEB: démarrage webkitSpeechRecognition");
+      window._pauseWebActive = true;
+      window._pauseCapReady = true; // pas de readyForNextSession sur web
+
+      // Arrêter toute session précédente
+      if (window._pauseWebRecog) {
+        try { window._pauseWebRecog.stop(); } catch(e) {}
+        window._pauseWebRecog = null;
+      }
+
+      const wr = new WebSR();
+      window._pauseWebRecog = wr;
+      wr.lang = "ar-SA";
+      wr.interimResults = true;
+      wr.maxAlternatives = 3;
+      wr.continuous = true;
+
+      wr.onresult = function(event) {
+        if (!window._pauseWebActive) return;
+        let interim = "", final = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const t = event.results[i][0].transcript.trim();
+          if (event.results[i].isFinal) final += " " + t;
+          else interim += " " + t;
+        }
+        const combined = (heard + " " + final + " " + interim).trim();
+        if (combined.length > heard.length) heard = combined;
+        _pauseUpdateDisplay();
+        dbg("PAUSE WEB onresult: " + heard);
+      };
+
+      wr.onerror = function(e) {
+        dbg("PAUSE WEB onerror: " + e.error);
+        // Sur "no-speech" ou "aborted" on continue simplement (le timeout gérera la fin)
+        if (e.error === "no-speech" || e.error === "aborted") return;
+        // Sur "not-allowed" on abandonne
+        window._pauseWebActive = false;
+      };
+
+      wr.onend = function() {
+        dbg("PAUSE WEB onend, active=" + window._pauseWebActive);
+        // Relancer automatiquement si la pause n'est pas encore terminée
+        if (window._pauseWebActive && window._pauseWebRecog === wr) {
+          try { wr.start(); } catch(e) { dbg("PAUSE WEB restart failed: " + e.message); }
+        }
+      };
+
+      try { wr.start(); dbg("PAUSE WEB: start() OK"); }
+      catch(e) { dbg("PAUSE WEB: start() ÉCHEC -> " + e.message); window._pauseWebActive = false; }
+
     } else {
-      dbg("PAUSE: bloc ignoré (condition fausse) — phase=" + phase + " SRPlugin=" + (SRPlugin ? "présent" : "ABSENT"));
+      window._pauseCapReady = true;
+      dbg("PAUSE: aucun moteur disponible — phase=" + phase);
     }
 
     window._pauseTO = setTimeout(()=>{
       window._pauseTO = null;
       window._pauseEnded = true;
+
+      // Arrêter Capacitor
       window._pauseCapActive = false;
       if (window._pauseCapListener) { try { window._pauseCapListener.remove(); } catch(e){} window._pauseCapListener = null; }
       if (window._pauseCapListenerState) { try { window._pauseCapListenerState.remove(); } catch(e){} window._pauseCapListenerState = null; }
@@ -1091,12 +1159,17 @@ function tick() {
       const SRPlugin2 = window.Capacitor?.Plugins?.SpeechRecognition;
       if (SRPlugin2) { try { SRPlugin2.stop(); } catch(e){} }
 
-      const hadText = window._pauseEvalFinal ? window._pauseEvalFinal() : true;
+      // Arrêter Web fallback
+      window._pauseWebActive = false;
+      if (window._pauseWebRecog) {
+        try { window._pauseWebRecog.stop(); } catch(e) {}
+        window._pauseWebRecog = null;
+      }
 
-      // Attendre que le plugin natif confirme qu'il est revenu à IDLE
-      // (événement readyForNextSession) avant de relancer le cycle suivant,
-      // au lieu d'un délai fixe arbitraire qui risquait d'arriver avant que
-      // start() ne soit réellement accepté par le moteur (état non-IDLE).
+      window._pauseEvalFinal && window._pauseEvalFinal();
+
+      // Pour Capacitor : attendre readyForNextSession avant de relancer tick()
+      // Pour Web/aucun : relancer immédiatement après un court délai
       function _proceedAfterReady() {
         if (window._pauseCapReadyListener) { try { window._pauseCapReadyListener.remove(); } catch(e){} window._pauseCapReadyListener = null; }
         const el = G("current-word");
@@ -1107,17 +1180,23 @@ function tick() {
         tick();
       }
 
-      setTimeout(() => {
-        if (window._pauseCapReady) { _proceedAfterReady(); return; }
-        let waited = 0;
-        const checkInterval = setInterval(() => {
-          waited += 100;
-          if (window._pauseCapReady || waited >= 1500) {
-            clearInterval(checkInterval);
-            _proceedAfterReady();
-          }
-        }, 100);
-      }, 2200);
+      if (useCapacitor) {
+        // Attendre readyForNextSession (max 2s)
+        setTimeout(() => {
+          if (window._pauseCapReady) { _proceedAfterReady(); return; }
+          let waited = 0;
+          const checkInterval = setInterval(() => {
+            waited += 100;
+            if (window._pauseCapReady || waited >= 1500) {
+              clearInterval(checkInterval);
+              _proceedAfterReady();
+            }
+          }, 100);
+        }, 600);
+      } else {
+        // Web ou aucun moteur : court délai d'affichage du résultat puis tick()
+        setTimeout(_proceedAfterReady, 1200);
+      }
     }, pauseDur * 0.99);
     } // end afterVersePlay
   });
