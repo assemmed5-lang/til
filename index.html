@@ -1127,133 +1127,55 @@ G("btn-listen-stop").addEventListener("click", () => {
 async function startRecog() {
   finalTx = ""; lastFullTx = "";
 
-  // Capgo natif en priorité (Android) — webkit en fallback (desktop/browser)
   const SRPlugin = window.Capacitor?.Plugins?.SpeechRecognition;
+  if (!SRPlugin) {
+    G("rec-status").textContent = "CAPGO NON DISPONIBLE";
+    G("btn-rec-stop").classList.add("hidden");
+    G("btn-rec-start").classList.remove("hidden");
+    return;
+  }
 
-  if (SRPlugin) {
-    try { await SRPlugin.requestPermissions(); } catch(e) {}
-    if (window._srListener) { try { window._srListener.remove(); } catch(e){} window._srListener = null; }
-    if (window._srListenerState) { try { window._srListenerState.remove(); } catch(e){} window._srListenerState = null; }
+  try { await SRPlugin.requestPermissions(); } catch(e) {}
+  if (window._srListener) { try { window._srListener.remove(); } catch(e){} window._srListener = null; }
+  if (window._srListenerState) { try { window._srListenerState.remove(); } catch(e){} window._srListenerState = null; }
 
-    G("mic-ring").classList.add("on");
-    G("rec-status").textContent = "جارٍ الاستماع... تكلّم الآن!";
-    G("transcript").style.display = "block";
-    G("transcript").textContent = "...";
-    setWord("—");
-    window._recogActive = true;
+  G("mic-ring").classList.add("on");
+  G("rec-status").textContent = "CAPGO - جارٍ الاستماع...";
+  G("transcript").style.display = "block";
+  G("transcript").textContent = "...";
+  setWord("—");
+  window._recogActive = true;
 
-    try {
-      window._srListener = await SRPlugin.addListener("partialResult", data => {
-        clearTimeout(window._silenceTimer);
-        window._silenceTimer = setTimeout(() => {
-          G("btn-rec-stop").click();
-        }, 4000);
-        const txt = data.value ? data.value.trim() : "";
-        if (txt.length >= lastFullTx.length) { lastFullTx = txt; finalTx = txt; }
-        G("transcript").textContent = lastFullTx || "...";
-        G("transcript").style.display = "block";
-        setWord(lastFullTx.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || "—");
-      });
+  try {
+    window._srListener = await SRPlugin.addListener("partialResult", data => {
+      const txt = data.value ? data.value.trim() : "";
+      if (txt.length >= lastFullTx.length) { lastFullTx = txt; finalTx = txt; }
+      G("transcript").textContent = lastFullTx || "...";
+      G("transcript").style.display = "block";
+      setWord(lastFullTx.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || "—");
+    });
 
-      window._srListenerState = await SRPlugin.addListener("listeningState", async state => {
-        if (state.status === "stopped" && window._recogActive) {
-          try {
-            await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10 });
-          } catch(e) {
-            setTimeout(async () => {
-              if (!window._recogActive) return;
-              try { await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10 }); } catch(e2) {}
-            }, 30);
-          }
+    window._srListenerState = await SRPlugin.addListener("listeningState", async state => {
+      G("rec-status").textContent = "CAPGO - " + state.status;
+      if (state.status === "stopped" && window._recogActive) {
+        try {
+          await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10 });
+        } catch(e) {
+          setTimeout(async () => {
+            if (!window._recogActive) return;
+            try { await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10 }); } catch(e2) {}
+          }, 30);
         }
-      });
+      }
+    });
 
-      await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10 });
+    await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false, maxResults: 10 });
 
-    } catch(e) {
-      G("rec-status").textContent = "خطأ في بدء التعرف: " + (e.message || e);
-      G("mic-ring").classList.remove("on");
-      G("btn-rec-stop").classList.add("hidden");
-      G("btn-rec-start").classList.remove("hidden");
-    }
-
-  } else {
-    // Fallback webkit (desktop / navigateur)
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) {
-      G("rec-status").textContent = "التعرف الصوتي غير مدعوم على هذا الجهاز.";
-      G("btn-rec-stop").classList.add("hidden");
-      G("btn-rec-start").classList.remove("hidden");
-      return;
-    }
-
-    if (!window._audioCtx) {
-      try {
-        window._audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const buf = window._audioCtx.createBuffer(1, 1, 22050);
-        const src = window._audioCtx.createBufferSource();
-        src.buffer = buf; src.loop = true;
-        src.connect(window._audioCtx.destination);
-        src.start(0);
-        window._audioKeepSrc = src;
-      } catch(e) {}
-    }
-
-    function makeRecog() {
-      const r = new SR();
-      r.lang = "ar-SA";
-      r.continuous = true;
-      r.interimResults = true;
-      r.maxAlternatives = 3;
-      r.onstart = () => { G("mic-ring").classList.add("on"); };
-      r.onresult = e => {
-        clearTimeout(window._silenceTimer);
-        window._silenceTimer = setTimeout(() => { G("btn-rec-stop").click(); }, 4000);
-        let interim = "";
-        for (let i = e.resultIndex; i < e.results.length; i++) {
-          if (e.results[i].isFinal) finalTx += e.results[i][0].transcript + " ";
-          else interim += e.results[i][0].transcript;
-        }
-        const candidate = (finalTx + interim).trim();
-        if (candidate.length >= lastFullTx.length) lastFullTx = candidate;
-        G("transcript").textContent = lastFullTx || "...";
-        setWord(lastFullTx.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || "—");
-      };
-      r.onerror = e => {
-        if (e.error === "no-speech") return;
-        if (e.error !== "aborted") G("rec-status").textContent = "خطأ: " + e.error;
-      };
-      r.onend = () => {
-        G("mic-ring").classList.remove("on");
-        if (lastFullTx.trim().length >= finalTx.trim().length) finalTx = lastFullTx.trim() + " ";
-        if (!window._recogActive) return;
-        try { recog = makeRecog(); recog.start(); }
-        catch(e) { setTimeout(() => { if (!window._recogActive) return; try { recog = makeRecog(); recog.start(); } catch(e2) {} }, 50); }
-      };
-      return r;
-    }
-
-    recog = makeRecog();
-    recog.onstart = () => {
-      G("mic-ring").classList.add("on");
-      G("rec-status").textContent = "جارٍ الاستماع... تكلّم الآن!";
-      const t = G("transcript"); t.style.display = "block"; t.textContent = "...";
-      setWord("—");
-    };
-
-    try {
-      window._recogActive = true;
-      recog.start();
-      if (window._recogWatchdog) clearInterval(window._recogWatchdog);
-      window._recogWatchdog = setInterval(() => {
-        if (!window._recogActive) { clearInterval(window._recogWatchdog); return; }
-        if (lastFullTx.trim().length > finalTx.trim().length) finalTx = lastFullTx.trim() + " ";
-      }, 500);
-    } catch(e) {
-      G("rec-status").textContent = "لا يمكن بدء التعرف الصوتي: " + e.message;
-      G("btn-rec-stop").classList.add("hidden");
-      G("btn-rec-start").classList.remove("hidden");
-    }
+  } catch(e) {
+    G("rec-status").textContent = "خطأ: " + (e.message || e);
+    G("mic-ring").classList.remove("on");
+    G("btn-rec-stop").classList.add("hidden");
+    G("btn-rec-start").classList.remove("hidden");
   }
 }
 G("btn-rec-start").addEventListener("click", () => {
@@ -1263,11 +1185,7 @@ G("btn-rec-start").addEventListener("click", () => {
 });
 
 G("btn-rec-stop").addEventListener("click", () => {
-  clearTimeout(window._silenceTimer);
   window._recogActive = false;
-  if (recog) { try { recog.stop(); } catch(e) {} recog = null; }
-  if (window._audioKeepSrc) { try { window._audioKeepSrc.stop(); } catch(e){} window._audioKeepSrc = null; }
-  if (window._audioCtx) { try { window._audioCtx.close(); } catch(e){} window._audioCtx = null; }
   const SRPlugin = window.Capacitor?.Plugins?.SpeechRecognition;
   if (SRPlugin) {
     try { SRPlugin.stop(); } catch(e) {}
