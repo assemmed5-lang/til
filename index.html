@@ -971,15 +971,8 @@ function tick() {
         examUpTo = curVerseIdx;
         examSolo = true;
       }
-      const oldRepTotal = repTotal;
-      const oldRepCur = repCur;
-      repTotal = 1; repCur = 5; // forcer vitesse normale pour la lecture finale
-      playOnce(() => {
-        repTotal = oldRepTotal;
-        repCur = oldRepCur;
-        G("audio-player").playbackRate = 1.0;
-        beginExamPhase();
-      });
+      G("audio-player").playbackRate = 1.0;
+      beginExamPhase();
     }, 1500);
     return;
   }
