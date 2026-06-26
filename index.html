@@ -209,7 +209,6 @@ audio { position:fixed; bottom:-100px; left:-100px; width:1px; height:1px; }
   <button class="btn btn-green hidden" id="btn-rec-stop">✅</button>
   <button class="btn btn-ghost hidden" id="btn-restart">↩</button>
 </div>
-<div id="debug-pause" style="display:none"></div>
 
 <div id="current-word-label" style="display:none"></div>
 <div id="card-setup" style="display:none"></div>
@@ -240,19 +239,6 @@ audio { position:fixed; bottom:-100px; left:-100px; width:1px; height:1px; }
 </div>
 <script>
 const G = id => document.getElementById(id);
-
-/* ── DIAGNOSTIC TEMPORAIRE — à retirer une fois le bug du micro en pause résolu ── */
-function dbg(msg) {
-  try {
-    const el = G("debug-pause");
-    if (!el) return;
-    const t = new Date().toLocaleTimeString();
-    el.textContent = "[" + t + "] " + msg + "\n" + el.textContent;
-    // garder seulement les 25 dernières lignes pour ne pas saturer l'affichage
-    const lines = el.textContent.split("\n");
-    if (lines.length > 25) el.textContent = lines.slice(0, 25).join("\n");
-  } catch(e) {}
-}
 
 /* ── Auto-fit texte : agrandit/réduit la police pour remplir le cadre #screen
    au maximum, dans les deux dimensions (largeur ET hauteur), sans déborder.
@@ -333,18 +319,17 @@ function showVerseWithMisses(verseIndices, heardNorm) {
   el.style.color = "";
   el.style.lineHeight = "1.35";
 
+  const heardWordsArr = heardNorm ? heardNorm.split(/\s+/).filter(Boolean) : [];
+
   verseIndices.forEach((vi, idx) => {
     // Chercher dans verses[] OU revVerses[] selon le mode actif
     const verseList = (revMode && revVerses.length) ? revVerses : verses;
     if (!verseList[vi]) return;
     const words = verseList[vi].split(/\s+/).filter(Boolean);
+    const alignment = heardWordsArr.length ? alignWords(words, heardWordsArr) : words.map(() => false);
     if (idx > 0) { el.appendChild(document.createElement("br")); }
     words.forEach((w, i) => {
-      const nw = norm(w);
-      const heardWords = heardNorm ? heardNorm.split(/\s+/) : [];
-      const ok = heardNorm && (heardNorm.includes(nw) || heardWords.some(hw =>
-        hw === nw || (nw.length > 4 && (hw.startsWith(nw.slice(0,4)) || nw.startsWith(hw.slice(0,4))))
-      ));
+      const ok = alignment[i];
       const span = document.createElement("span");
       span.textContent = (i > 0 ? " " : "") + w;
       span.style.color = ok ? "#f5e6c0" : "#E24B4A";
@@ -394,6 +379,58 @@ function norm(s) {
     .replace(/ـ/g,"")
     .replace(/(.)\1{2,}/g,"$1$1")
     .replace(/\s+/g," ").trim().toLowerCase();
+}
+
+// Deux mots normalisés sont considérés "identiques" avec la même tolérance
+// de préfixe utilisée historiquement dans l'app (fautes de reconnaissance/troncature).
+function wordsMatch(nw, hw) {
+  return hw === nw || (nw.length > 4 && (hw.startsWith(nw.slice(0,4)) || nw.startsWith(hw.slice(0,4))));
+}
+
+// ══════════════════════════════════════════════
+// alignWords : alignement GLOUTON gauche-à-droite entre les mots ATTENDUS
+// (verset) et les mots ENTENDUS (transcription).
+//
+// Principe : on parcourt les mots attendus DANS L'ORDRE (1, 2, 3...). Pour
+// chaque mot attendu, on cherche le PREMIER mot entendu disponible (non
+// encore utilisé) situé strictement APRÈS la position du dernier mot
+// entendu déjà validé. Si trouvé → validé et "consommé" (ne peut plus
+// servir à un autre mot attendu). Si non trouvé → raté.
+//
+// Pourquoi cet algorithme et pas un simple "le mot existe dans heard" :
+// - DUPLICATAS : si le verset répète un mot (ex: كَيْفَ deux fois) et que
+//   l'utilisateur ne le dit qu'une fois, un seul des deux est validé —
+//   jamais les deux à partir d'une seule occurrence entendue.
+// - ORDRE : si l'utilisateur dit "رب العالمين" avant "الحمد لله" (alors que
+//   le verset attend l'inverse), رب/العالمين ne sont PAS validés tant que
+//   leurs prédécesseurs (الحمد/لله) n'ont pas été dits avant eux dans
+//   l'enregistrement. En revanche, si l'utilisateur a commencé à parler
+//   avant l'activation du micro et que رب/العالمين sont captés en premier,
+//   puis qu'il dit ensuite الحمد/لله dans le bon ordre relatif entre eux,
+//   ces deux derniers SONT validés (ils respectent l'ordre l'un par rapport
+//   à l'autre) — seuls رب/العالمين restent non validés et donc à refaire.
+//
+// Retourne un tableau de booléens, un par mot attendu (true = validé).
+// ══════════════════════════════════════════════
+function alignWords(expectedWords, heardWordsArr) {
+  const n = expectedWords.length;
+  const nExp = expectedWords.map(norm);
+  const nHeard = heardWordsArr.map(norm);
+  const used = new Array(nHeard.length).fill(false);
+  const ok = new Array(n).fill(false);
+  let lastUsedPos = -1;
+  for (let i = 0; i < n; i++) {
+    let found = -1;
+    for (let j = lastUsedPos + 1; j < nHeard.length; j++) {
+      if (!used[j] && wordsMatch(nExp[i], nHeard[j])) { found = j; break; }
+    }
+    if (found !== -1) {
+      ok[i] = true;
+      used[found] = true;
+      lastUsedPos = found;
+    }
+  }
+  return ok;
 }
 
 function findVerseWindow(allCues, verseText) {
@@ -459,6 +496,11 @@ let audioB64   = null;
 let activeBankIdx = -1;
 let curVerseIdx=0, examUpTo=0, phase="idle", retryMissing=[];
 let playing=false, stopped=false, repCur=0, repTotal=10, recog=null, finalTx="", lastFullTx="";
+
+/* ── État du quiz vocal fractionné (mots ratés < 50%) ── */
+let fracGroups = [];   // [{ vi, startIdx, endIdx, words:[...] }, ...]
+let fracGroupIdx = 0;  // index du groupe en cours
+let fracOnDone = null; // callback à appeler quand tous les groupes sont réussis
 
 /* ── BANQUE_SOURATES déplacée dans data/banque_sourates.js (voir <script src> dans le <head>) ── */
 
@@ -646,7 +688,7 @@ function startSession() {
   if (loadState()) {
     updateBarSurah(); // visible dès le début de la session
     if (phase === "listen" || phase === "retry_listen") beginListenPhase(true); // reprise — garder repCur
-    else if (phase === "exam") {
+    else if (phase === "exam" || phase === "exam_fractioned") {
       // Reprise après interruption en cours d'exam :
       // L'enfant a pu oublier le(s) verset(s) depuis la dernière session.
       // On ne relance JAMAIS l'examen directement : on impose d'abord une
@@ -728,7 +770,7 @@ function beginListenPhase(keepRep) {
     window._activeWindow = { start: curVerseIdx * chunk, end: (curVerseIdx+1) * chunk };
   }
   const ws = window._activeWindow.start, we = window._activeWindow.end;
-  window._activeCues = wordCues.filter(c => c.start >= ws - 0.1 && c.end <= we + 0.1);
+  window._activeCues = wordCues.filter(c => c.start >= ws - 0.05 && c.start < we);
 }
 
 function beginRetryListenPhase(missingVerseIdxList) {
@@ -744,7 +786,7 @@ function beginRetryListenPhase(missingVerseIdxList) {
   });
   if (winStart === Infinity) { winStart = 0; winEnd = verseCues.length ? verseCues[verseCues.length-1].end : 60; }
   window._activeWindow = { start: winStart, end: winEnd };
-  window._activeCues   = wordCues.filter(c => c.start >= winStart - 0.1 && c.end <= winEnd + 0.1);
+  window._activeCues   = wordCues.filter(c => c.start >= winStart - 0.05 && c.start < winEnd);
   repTotal = 1; repCur = 0; playing = false; stopped = false;
   const names = missingVerseIdxList.map(i => "الآية "+(i+1)).join(" + ");
   G("phase-label").textContent = "مراجعة: " + names + " — مرة واحدة";
@@ -914,12 +956,6 @@ function stopPauseRecog() {
     try { window._pauseRecog.stop(); } catch(e) {}
     window._pauseRecog = null;
   }
-  // Stopper aussi le fallback web (PC / navigateur)
-  if (window._pauseWebRecog) {
-    try { window._pauseWebRecog.stop(); } catch(e) {}
-    window._pauseWebRecog = null;
-  }
-  window._pauseWebActive = false;
 }
 
 
@@ -971,8 +1007,15 @@ function tick() {
         examUpTo = curVerseIdx;
         examSolo = true;
       }
-      G("audio-player").playbackRate = 1.0;
-      beginExamPhase();
+      const oldRepTotal = repTotal;
+      const oldRepCur = repCur;
+      repTotal = 1; repCur = 5; // forcer vitesse normale pour la lecture finale
+      playOnce(() => {
+        repTotal = oldRepTotal;
+        repCur = oldRepCur;
+        G("audio-player").playbackRate = 1.0;
+        beginExamPhase();
+      });
     }, 1500);
     return;
   }
@@ -993,63 +1036,106 @@ function tick() {
     const win = window._activeWindow;
     const segDur = win ? Math.max((win.end - win.start) * 1000, 600) : 600;
     const rate = (phase === "listen") ? G("audio-player").playbackRate : 1.0;
-    const pauseDur = Math.max((segDur / rate) * 1.5, 6000);
+    const pauseDur = (segDur / rate) * 1.5;
 
+    const SRBrowser = window.SpeechRecognition || window.webkitSpeechRecognition;
+    // Annuler le cycle précédent proprement avant d'en démarrer un nouveau
     if (window._pauseTO) { clearTimeout(window._pauseTO); window._pauseTO = null; }
+    window._pauseEnded = true;
+    if (window._pauseRecog) { try { window._pauseRecog.stop(); } catch(e){} window._pauseRecog = null; }
     window._pauseEnded = false;
     window._pauseSilencePending = false;
     G("transcript").textContent = "";
     G("transcript").style.display = "none";
-    startRecog();
 
-    const SRPlugin = window.Capacitor?.Plugins?.SpeechRecognition;
-    const WebSR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const useCapacitor = !!(SRPlugin);
-    const useWeb = !useCapacitor && !!(WebSR);
-    dbg("afterVersePlay: phase=" + phase + " cap=" + useCapacitor + " web=" + useWeb);
+    if ((phase === "listen" || phase === "retry_listen") && SRBrowser) {
+      const expVi = phase === "retry_listen" ? (retryMissing[0] ?? curVerseIdx) : curVerseIdx;
+      const expW = verses[expVi] ? verses[expVi].split(/\s+/).filter(Boolean).map(norm) : [];
+      let heard = ""; let gotSpeech = false;
+      // accumFinal persiste across les redémarrages du micro (silences) —
+      // c'est l'équivalent local de finalTx : ne JAMAIS la réinitialiser
+      // lors d'un redémarrage, sinon tout ce qui a été dit avant le dernier
+      // silence est perdu (bug historique de l'écran d'examen, désormais
+      // corrigé aussi ici).
+      let accumFinal = "";
+      const _pauseStart = Date.now();
+      window._pauseEnded = false;
 
-    const expVi = phase === "retry_listen" ? (retryMissing[0] ?? curVerseIdx) : curVerseIdx;
-    let heard = "";
-
-    function _evalPauseFinal() {
-      const displayedTxt = (G("transcript").textContent || "").trim();
-      if (!displayedTxt || displayedTxt === "...") {
+     function _evalPauseFinal() {
+        const displayedTxt = (G("transcript").textContent || "").trim();
+        if (!displayedTxt || displayedTxt === "...") {
+          document.body.style.background = "var(--bg)";
+          return false;
+        }
+        const hn = norm(displayedTxt);
         document.body.style.background = "var(--bg)";
-        return false;
+        // Toujours afficher le verset complet avec coloration (blanc=juste, rouge=raté)
+        showVerseWithMisses([expVi], hn);
+        return true;
       }
-      const hn = norm(displayedTxt);
-      document.body.style.background = "var(--bg)";
-      showVerseWithMisses([expVi], hn);
-      return true;
-    }
-    window._pauseEvalFinal = _evalPauseFinal;
 
-    function _pauseUpdateDisplay() {
-      const mot = heard.split(/\s+/).filter(Boolean).slice(-1)[0];
-      if (mot) { setWord(mot); G("transcript").textContent = heard; G("transcript").style.display = "block"; }
+      function _startPR() {
+        const pr = new SRBrowser();
+        pr.lang = "ar-SA"; pr.continuous = true; pr.interimResults = true;
+        pr.onresult = e => {
+          let im="";
+          for(let i=e.resultIndex;i<e.results.length;i++){if(e.results[i].isFinal)accumFinal+=e.results[i][0].transcript+" ";else im+=e.results[i][0].transcript;}
+          const txt=(accumFinal+im).trim();
+          if(txt.length >= heard.length){heard=txt;gotSpeech=true;}
+          const mot=heard.split(/\s+/).filter(Boolean).slice(-1)[0];
+          if(mot){setWord(mot);G("transcript").textContent=heard;G("transcript").style.display="block";}
+        };
+        pr.onend = () => {
+          if(!window._pauseRecog || window._pauseEnded) return;
+          // CRITIQUE : avant de redémarrer, on fige accumFinal sur le texte
+          // affiché le plus complet (heard), pour ne jamais perdre les mots
+          // "interim" qui n'avaient pas encore été marqués isFinal.
+          if (heard.trim().length >= accumFinal.trim().length) {
+            accumFinal = heard.trim() + " ";
+          }
+          // Toujours redémarrer le moteur tant que la pause globale n'est pas finie —
+          // webkitSpeechRecognition s'arrête seul après un court silence, ce n'est PAS
+          // la fin de la pause de 3s, juste la fin d'un cycle d'écoute interne.
+          setTimeout(()=>{
+            if (window._pauseEnded || !window._pauseRecog) return;
+            try{
+              const r=new SRBrowser(); r.lang="ar-SA"; r.continuous=true; r.interimResults=true;
+              r.onresult=pr.onresult; r.onend=pr.onend; window._pauseRecog=r; r.start();
+            }catch(e){}
+          },50);
+        };
+        window._pauseRecog = pr;
+        try{pr.start();}catch(e){}
+      }
+      _startPR();
+      window._pauseEvalFinal = _evalPauseFinal;
     }
+
     window._pauseTO = setTimeout(()=>{
       window._pauseTO = null;
       window._pauseEnded = true;
+      const hadText = window._pauseEvalFinal ? window._pauseEvalFinal() : true;
+      if(window._pauseRecog){try{window._pauseRecog.stop();}catch(e){}window._pauseRecog=null;}
 
-      // Arrêter tous les moteurs de reconnaissance
-      window._pauseCapActive = false;
-      if (window._pauseCapListener) { try { window._pauseCapListener.remove(); } catch(e){} window._pauseCapListener = null; }
-      if (window._pauseCapListenerState) { try { window._pauseCapListenerState.remove(); } catch(e){} window._pauseCapListenerState = null; }
-      if (window._pauseCapSegListener) { try { window._pauseCapSegListener.remove(); } catch(e){} window._pauseCapSegListener = null; }
-      window._pauseWebActive = false;
-      if (window._pauseWebRecog) {
-        try { window._pauseWebRecog.stop(); } catch(e) {}
-        window._pauseWebRecog = null;
+      if (!hadText) {
+        // Rien affiché à l'écran → active le bouton pause, bloque l'app
+        setWord("⏸");
+        document.body.style.background="var(--bg)";
+        stopped = true;
+        G("btn-listen-start").disabled = false;
+        G("btn-listen-start").textContent = "▶";
+        window._pauseSilencePending = false;
+        return;
       }
-      // Arrêter le micro via stopRecog (même système que btn-rec-stop)
-      stopRecog();
-      const el = G("current-word");
-      el.innerHTML = ""; el.style.fontSize = ""; el.style.color = "";
-      el.textContent = "—";
-      document.body.style.background = "var(--bg)";
-      window._pauseSilencePending = false;
-      setTimeout(() => tick(), 800);
+
+      setTimeout(() => {
+        const el = G("current-word");
+        el.innerHTML = ""; el.style.fontSize = ""; el.style.color = "";
+        el.textContent = "—";
+        document.body.style.background="var(--bg)";
+        window._pauseSilencePending=false;
+        tick();
+      }, 2200);
     }, pauseDur * 0.99);
     } // end afterVersePlay
   });
@@ -1087,105 +1173,133 @@ G("btn-listen-stop").addEventListener("click", () => {
   G("rep-state").textContent = "متوقف — اضغط للمتابعة";
 });
 
-/* ═══════════════════════════════════════════════════════
-   RECONNAISSANCE VOCALE — MediaRecorder + Whisper
-   Aucune dépendance Android SpeechRecognizer, aucun timeout.
-   ═══════════════════════════════════════════════════════ */
-const WHISPER_KEY = "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"; // ← clé Groq gratuite
-const CHUNK_MS    = 5000; // envoie un chunk toutes les 5 secondes
-
-let _mrStream   = null;
-let _mrRecorder = null;
-let _mrChunks   = [];
-let _mrTimer    = null;
-
+/* ══════════════════════════════════════════════
+   SPEECH RECOGNITION — EXAM PHASE
+   Stratégie : webkitSpeechRecognition EN PRIORITÉ.
+   Elle fonctionne dans Chrome (PC) ET dans la WebView
+   Capacitor grâce à androidScheme:'https' (origine sécurisée).
+   Le plugin natif Capacitor n'est utilisé qu'en dernier recours.
+   ══════════════════════════════════════════════ */
 async function startRecog() {
   finalTx = ""; lastFullTx = "";
-  window._recogActive = true;
-  G("mic-ring").classList.add("on");
-  G("rec-status").textContent = "جارٍ الاستماع...";
-  G("transcript").textContent = "...";
-  G("transcript").style.display = "block";
-  setWord("—");
 
-  try {
-    _mrStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  } catch(e) {
-    G("rec-status").textContent = "لا يمكن الوصول للميكروفون: " + e.message;
-    return;
-  }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-  function startChunk() {
-    if (!window._recogActive) return;
-    _mrChunks = [];
-    const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-      ? "audio/webm;codecs=opus"
-      : "audio/webm";
-    _mrRecorder = new MediaRecorder(_mrStream, { mimeType });
-
-    _mrRecorder.ondataavailable = e => {
-      if (e.data && e.data.size > 0) _mrChunks.push(e.data);
-    };
-
-    _mrRecorder.onstop = async () => {
-      if (!_mrChunks.length) { if (window._recogActive) startChunk(); return; }
-      const blob = new Blob(_mrChunks, { type: _mrRecorder.mimeType });
-      _mrChunks = [];
-
-      // Envoyer à Whisper
-      try {
-        const fd = new FormData();
-        fd.append("file", blob, "audio.webm");
-        fd.append("model", "whisper-large-v3");
-        fd.append("language", "ar");
-        const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
-          method: "POST",
-          headers: { Authorization: "Bearer " + WHISPER_KEY },
-          body: fd
-        });
-        const json = await res.json();
-        const text = (json.text || "").trim();
-        if (text) {
-          lastFullTx = (lastFullTx + " " + text).trim();
-          finalTx    = lastFullTx;
-          G("transcript").textContent = lastFullTx;
-          const mot = lastFullTx.split(/\s+/).filter(Boolean).slice(-1)[0];
-          if (mot) setWord(mot);
+  if (SR) {
+    function makeRecog() {
+      const r = new SR();
+      r.lang = "ar-SA";
+      r.continuous = true;
+      r.interimResults = true;
+      r.maxAlternatives = 3;
+      r.onstart = () => { G("mic-ring").classList.add("on"); };
+      r.onresult = e => {
+        let interim = "";
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          if (e.results[i].isFinal) finalTx += e.results[i][0].transcript + " ";
+          else interim += e.results[i][0].transcript;
         }
-      } catch(err) {
-        G("rec-status").textContent = "خطأ Whisper: " + err.message;
-      }
+        const candidate = (finalTx + interim).trim();
+        if (candidate.length >= lastFullTx.length) lastFullTx = candidate;
+        G("transcript").textContent = lastFullTx || "...";
+        setWord(lastFullTx.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || "—");
+      };
+      r.onerror = e => {
+        if (e.error !== "aborted") G("rec-status").textContent = "خطأ: " + e.error;
+      };
+      r.onend = restartRecog;
+      return r;
+    }
 
-      // Redémarrer le chunk suivant automatiquement
-      if (window._recogActive) startChunk();
+    function restartRecog() {
+      G("mic-ring").classList.remove("on");
+      // CRITIQUE : à la coupure, des mots "interim" (pas encore isFinal)
+      // peuvent être perdus et ne jamais rejoindre finalTx, alors qu'ils
+      // étaient déjà visibles à l'écran via lastFullTx (finalTx + interim).
+      // On fige donc TOUJOURS finalTx sur lastFullTx ici, qui est le texte
+      // le plus complet connu à cet instant — jamais l'inverse.
+      if (lastFullTx.trim().length >= finalTx.trim().length) {
+        finalTx = lastFullTx.trim() + " ";
+      }
+      if (!window._recogActive) return;
+      // Redémarrage immédiat (sans setTimeout) pour minimiser le trou
+      // d'écoute pendant lequel des mots récités seraient totalement perdus.
+      try {
+        recog = makeRecog();
+        recog.start();
+      } catch(e) {
+        // InvalidStateError possible si l'ancien moteur n'a pas fini de
+        // se libérer : on retente une fois après un court délai.
+        setTimeout(() => {
+          if (!window._recogActive) return;
+          try { recog = makeRecog(); recog.start(); } catch(e2) {}
+        }, 80);
+      }
+    }
+
+    recog = makeRecog();
+    recog.onstart = () => {
+      G("mic-ring").classList.add("on");
+      G("rec-status").textContent = "جارٍ الاستماع... تكلّم الآن!";
+      const t = G("transcript"); t.style.display = "block"; t.textContent = "...";
+      setWord("—");
     };
 
-    _mrRecorder.start();
-    // Arrêter ce chunk après CHUNK_MS ms → onstop → envoi → nouveau chunk
-    _mrTimer = setTimeout(() => {
-      if (_mrRecorder && _mrRecorder.state === "recording") {
-        _mrRecorder.stop();
-      }
-    }, CHUNK_MS);
-  }
+    try {
+      window._recogActive = true;
+      recog.start();
+      // Filet de sécurité : toutes les 500ms, on garantit que finalTx ne
+      // soit jamais en retard sur lastFullTx (ce qui est affiché à l'écran),
+      // peu importe la séquence exacte d'événements Web Speech reçus.
+      if (window._recogWatchdog) clearInterval(window._recogWatchdog);
+      window._recogWatchdog = setInterval(() => {
+        if (!window._recogActive) { clearInterval(window._recogWatchdog); return; }
+        if (lastFullTx.trim().length > finalTx.trim().length) {
+          finalTx = lastFullTx.trim() + " ";
+        }
+      }, 500);
+    } catch(e) {
+      G("rec-status").textContent = "لا يمكن بدء التعرف الصوتي: " + e.message;
+      G("btn-rec-stop").classList.add("hidden");
+      G("btn-rec-start").classList.remove("hidden");
+    }
 
-  startChunk();
+  } else {
+    const SRPlugin = window.Capacitor?.Plugins?.SpeechRecognition;
+    if (!SRPlugin) {
+      G("rec-status").textContent = "التعرف الصوتي غير مدعوم على هذا الجهاز.";
+      G("btn-rec-stop").classList.add("hidden");
+      G("btn-rec-start").classList.remove("hidden");
+      return;
+    }
+
+    try { await SRPlugin.requestPermission(); } catch(e) {}
+    if (window._srListener) { try { window._srListener.remove(); } catch(e){} window._srListener = null; }
+
+    G("mic-ring").classList.add("on");
+    G("rec-status").textContent = "جارٍ الاستماع... تكلّم الآن!";
+    G("transcript").style.display = "block";
+    G("transcript").textContent = "...";
+    setWord("—");
+
+    try {
+      window._srListener = await SRPlugin.addListener("partialResults", data => {
+        const txt = (data.matches && data.matches[0]) ? data.matches[0] : "";
+        if (txt.length >= lastFullTx.length) { lastFullTx = txt; finalTx = txt; }
+        G("transcript").textContent = lastFullTx || "...";
+        G("transcript").style.display = "block";
+        setWord(lastFullTx.trim().split(/\s+/).filter(Boolean).slice(-1)[0] || "—");
+      });
+      await SRPlugin.start({ language: "ar-SA", partialResults: true, popup: false });
+    } catch(e) {
+      G("rec-status").textContent = "خطأ في بدء التعرف: " + (e.message || e);
+      G("mic-ring").classList.remove("on");
+      G("btn-rec-stop").classList.add("hidden");
+      G("btn-rec-start").classList.remove("hidden");
+    }
+  }
 }
 
-function stopRecog() {
-  window._recogActive = false;
-  if (_mrTimer) { clearTimeout(_mrTimer); _mrTimer = null; }
-  if (_mrRecorder && _mrRecorder.state === "recording") {
-    try { _mrRecorder.stop(); } catch(e) {}
-  }
-  _mrRecorder = null;
-  if (_mrStream) {
-    _mrStream.getTracks().forEach(t => t.stop());
-    _mrStream = null;
-  }
-  if (lastFullTx.trim().length >= finalTx.trim().length) finalTx = lastFullTx.trim();
-  G("mic-ring").classList.remove("on");
-}
 G("btn-rec-start").addEventListener("click", () => {
   G("btn-rec-start").classList.add("hidden");
   G("btn-rec-stop").classList.remove("hidden");
@@ -1193,12 +1307,23 @@ G("btn-rec-start").addEventListener("click", () => {
 });
 
 G("btn-rec-stop").addEventListener("click", () => {
-  stopRecog();
+  window._recogActive = false;
+  if (recog) { try { recog.stop(); } catch(e) {} recog = null; }
+  const SRPlugin = window.Capacitor?.Plugins?.SpeechRecognition;
+  if (SRPlugin) {
+    try { SRPlugin.stop(); } catch(e) {}
+    if (window._srListener) { try { window._srListener.remove(); } catch(e){} window._srListener = null; }
+  }
   G("mic-ring").classList.remove("on");
   G("btn-rec-stop").classList.add("hidden");
   G("btn-rec-start").classList.add("hidden");
   G("rec-status").textContent = "جارٍ التحليل...";
-  setTimeout(() => evaluate(), 1500);
+  if (lastFullTx.trim().length >= finalTx.trim().length) finalTx = lastFullTx.trim() + " ";
+  if (phase === "exam_fractioned") {
+    setTimeout(() => evaluateFracGroup(), 1500);
+  } else {
+    setTimeout(() => evaluate(), 1500);
+  }
 });
 function playGroupOnce(then) {
   const indices = [];
@@ -1209,7 +1334,7 @@ function playGroupOnce(then) {
     const vc = verseCues[vi];
     if (!vc) { playNext(); return; }
     window._activeWindow = { start: vc.start, end: vc.end };
-    window._activeCues = wordCues.filter(c => c.start >= vc.start - 0.1 && c.end <= vc.end + 0.1);
+    window._activeCues = wordCues.filter(c => c.start >= vc.start - 0.05 && c.start < vc.end);
     G("audio-player").playbackRate = 1.0;
     playOnce(playNext);
   }
@@ -1474,7 +1599,7 @@ function startReviewSession(suraIdx) {
   G("card-result").classList.add("hidden");
   buildRevProgressTrack();
 
-  revStartExamSingle(0);
+  revListenCurrentVerse();
 }
 
 function showRevPhaseLabel(txt) {
@@ -1499,7 +1624,7 @@ function revListenCurrentVerse() {
   if (!vc) { revVerseIdx++; if (revVerseIdx < revVerses.length) revListenCurrentVerse(); else revStartExamSingle(0); return; }
 
   window._activeWindow = { start: vc.start, end: vc.end };
-  window._activeCues   = revWordCues.filter(c => c.start >= vc.start - 0.1 && c.end <= vc.end + 0.1);
+  window._activeCues   = revWordCues.filter(c => c.start >= vc.start - 0.05 && c.start < vc.end);
 
   G("phase-label").textContent = "مراجعة — الآية " + (revVerseIdx+1) + " من " + revVerses.length;
   G("ayah-full-text").textContent = revVerses[revVerseIdx];
@@ -1541,7 +1666,7 @@ function revStartExamSingle(vi) {
   const vc = revVerseCues[vi];
   if (vc) {
     window._activeWindow = { start: vc.start, end: vc.end };
-    window._activeCues   = revWordCues.filter(c => c.start >= vc.start - 0.1 && c.end <= vc.end + 0.1);
+    window._activeCues   = revWordCues.filter(c => c.start >= vc.start - 0.05 && c.start < vc.end);
   }
 
   showRevPhaseLabel("مراجعة " + BANQUE_SOURATES[revSuraIdx].nom + " — امتحان كل آية");
@@ -1573,14 +1698,9 @@ function revStartExamSingle(vi) {
 function revEvaluateSingle() {
   const heard = norm(finalTx);
   const words = revVerses[revExamVerseIdx].split(/\s+/).filter(Boolean);
-  const allWords = words.map(w => {
-    const nw = norm(w);
-    const heardWords = heard.split(/\s+/);
-    const ok = heard.includes(nw) || heardWords.some(hw =>
-      hw === nw || (nw.length > 4 && (hw.startsWith(nw.slice(0,4)) || nw.startsWith(hw.slice(0,4))))
-    );
-    return { w, ok };
-  });
+  const heardWordsArr = heard.split(/\s+/).filter(Boolean);
+  const alignment = alignWords(words, heardWordsArr);
+  const allWords = words.map((w, i) => ({ w, ok: alignment[i] }));
   const found = allWords.filter(x => x.ok).length;
   const score = Math.round((found / words.length) * 100);
 
@@ -1596,14 +1716,14 @@ function revEvaluateSingle() {
       if (next < revVerses.length) {
         revStartExamSingle(next);
       } else {
-        revStartExamAll();
+        revPlayAllThenExamAll();
       }
     }, 2800);
   } else {
     setTimeout(() => {
       setWord("—");
-      revStartExamSingle(revExamVerseIdx);
-    }, 2000);
+      revRelistenVerse(revExamVerseIdx, () => revStartExamSingle(revExamVerseIdx));
+    }, 3500);
   }
 }
 
@@ -1611,7 +1731,7 @@ function revRelistenVerse(vi, then) {
   const vc = revVerseCues[vi];
   if (!vc) { then(); return; }
   window._activeWindow = { start: vc.start, end: vc.end };
-  window._activeCues   = revWordCues.filter(c => c.start >= vc.start - 0.1 && c.end <= vc.end + 0.1);
+  window._activeCues   = revWordCues.filter(c => c.start >= vc.start - 0.05 && c.start < vc.end);
   G("phase-label").textContent = "إعادة الاستماع للآية " + (vi+1);
   G("ayah-full-text").textContent = revVerses[vi];
   G("ayah-full-box").classList.remove("hidden");
@@ -1650,7 +1770,7 @@ function revPlayAllThenExamAll() {
     const vc = revVerseCues[vi];
     if (!vc) { playNext(); return; }
     window._activeWindow = { start: vc.start, end: vc.end };
-    window._activeCues   = revWordCues.filter(c => c.start >= vc.start - 0.1 && c.end <= vc.end + 0.1);
+    window._activeCues   = revWordCues.filter(c => c.start >= vc.start - 0.05 && c.start < vc.end);
     G("audio-player").playbackRate = 1.0;
     playing = true; stopped = false;
     playOnce(playNext);
@@ -1682,17 +1802,14 @@ function revStartExamAll() {
 
 function revEvaluateAll() {
   const heard = norm(finalTx);
-  const allWords = [];
+  const heardWordsArr = heard.split(/\s+/).filter(Boolean);
+  const allExpectedWords = [];
+  const wordOwnerVi = [];
   revVerses.forEach((v, vi) => {
-    v.split(/\s+/).filter(Boolean).forEach(w => {
-      const nw = norm(w);
-      const heardWords = heard.split(/\s+/);
-      const ok = heard.includes(nw) || heardWords.some(hw =>
-        hw === nw || (nw.length > 4 && (hw.startsWith(nw.slice(0,4)) || nw.startsWith(hw.slice(0,4))))
-      );
-      allWords.push({ w, ok, vi });
-    });
+    v.split(/\s+/).filter(Boolean).forEach(w => { allExpectedWords.push(w); wordOwnerVi.push(vi); });
   });
+  const globalAlignment = alignWords(allExpectedWords, heardWordsArr);
+  const allWords = allExpectedWords.map((w, i) => ({ w, ok: globalAlignment[i], vi: wordOwnerVi[i] }));
 
   const found = allWords.filter(x => x.ok).length;
   const score = Math.round((found / allWords.length) * 100);
@@ -1731,13 +1848,13 @@ function revEvaluateAll() {
   } else {
     box.classList.add("rtry");
     G("score-num").textContent = score + "%";
-    G("score-lbl").textContent = "لا بأس — حاول مجدداً";
-    G("score-msg").textContent = "أعد التسميع مباشرة";
+    G("score-lbl").textContent = "لا بأس — نعيد الاستماع مرة أخرى";
+    G("score-msg").textContent = "ستستمع للسورة كاملة مجدداً ثم تُسمِّع";
     setTimeout(() => {
       setWord("—");
       G("card-result").classList.add("hidden");
-      revStartExamAll();
-    }, 2000);
+      revPlayAllThenExamAll();
+    }, 3500);
   }
 }
 
@@ -1761,28 +1878,31 @@ function evaluate() {
   if (examSolo) {
     // Exam solo : évaluation mot par mot sur le verset unique
     const words = verses[curVerseIdx].split(/\s+/).filter(Boolean);
-    words.forEach(w => {
-      const nw = norm(w);
-      const heardWords = heard.split(/\s+/);
-      const ok = heard.includes(nw) || heardWords.some(hw =>
-        hw === nw || (nw.length > 4 && (hw.startsWith(nw.slice(0,4)) || nw.startsWith(hw.slice(0,4))))
-      );
-      allWords.push({ w, ok, vi: curVerseIdx });
+    const heardWordsArr = heard.split(/\s+/).filter(Boolean);
+    const alignment = alignWords(words, heardWordsArr);
+    words.forEach((w, i) => {
+      allWords.push({ w, ok: alignment[i], vi: curVerseIdx });
     });
     const versePct = Math.round(allWords.filter(x=>x.ok).length / allWords.length * 100);
     verseResults.push({ vi: curVerseIdx, passed: versePct >= 70, pct: versePct });
   } else {
-    // Exam collectif : évaluer CHAQUE verset séparément
-    // Un verset passe si >= 70% de ses mots sont détectés
+    // Exam collectif : on aligne TOUTE la plage de mots attendus (tous
+    // versets confondus) en une seule passe, pour que l'ordre global de la
+    // récitation soit respecté à travers les frontières de versets — puis
+    // on répartit les résultats verset par verset pour le calcul du score.
+    const heardWordsArr = heard.split(/\s+/).filter(Boolean);
+    const allExpectedWords = [];
+    for (let vi = from; vi <= to; vi++) {
+      const words = verses[vi].split(/\s+/).filter(Boolean);
+      words.forEach(w => { allExpectedWords.push(w); });
+    }
+    const globalAlignment = alignWords(allExpectedWords, heardWordsArr);
+    let gi = 0;
     for (let vi = from; vi <= to; vi++) {
       const words = verses[vi].split(/\s+/).filter(Boolean);
       const verseWords = [];
       words.forEach(w => {
-        const nw = norm(w);
-        const heardWords = heard.split(/\s+/);
-        const ok = heard.includes(nw) || heardWords.some(hw =>
-          hw === nw || (nw.length > 4 && (hw.startsWith(nw.slice(0,4)) || nw.startsWith(hw.slice(0,4))))
-        );
+        const ok = globalAlignment[gi]; gi++;
         verseWords.push({ w, ok, vi });
         allWords.push({ w, ok, vi });
       });
@@ -1796,19 +1916,31 @@ function evaluate() {
   for (let vi = from; vi <= to; vi++) displayVerseIndices.push(vi);
   showVerseWithMisses(displayVerseIndices, heard);
 
-  // Score = % de versets qui passent (pas % de mots global)
+  // Score = % de versets qui passent (pas % de mots global) — gardé pour l'affichage
   const passedVerses = verseResults.filter(r => r.passed).length;
   const score = Math.round((passedVerses / verseResults.length) * 100);
-  const failedVerses = verseResults.filter(r => !r.passed).map(r => r.vi);
   const box = G("score-box"); box.className = "score-box";
   const nm  = G("n-missing"), nx = G("n-extra");
   nm.classList.add("hidden"); nx.classList.add("hidden");
+
+  // ── Taux d'échec global au niveau MOT (toutes les mots examinés, tous versets confondus) ──
+  const totalWordsCount  = allWords.length;
+  const failedWordsCount = allWords.filter(x => !x.ok).length;
+  const failRatio = totalWordsCount ? (failedWordsCount / totalWordsCount) : 0;
+
   if (score >= 70) {
     setTimeout(() => {
       setWord("—");
       advanceAfterPass();
     }, 2800);
+  } else if (failRatio < 0.5) {
+    // Moins de 50% de mots ratés → quiz vocal fractionné ciblé sur les mots ratés
+    setTimeout(() => {
+      setWord("—");
+      beginFractionedQuiz(allWords, advanceAfterPass);
+    }, 1500);
   } else {
+    // 50% ou plus de mots ratés → réexamen complet classique
     setTimeout(() => {
       setWord("—");
       const allIndices = [];
@@ -1817,6 +1949,187 @@ function evaluate() {
       beginRetryListenPhase(allIndices);
     }, 3500);
   }
+}
+
+/* ══════════════════════════════════════════════
+   QUIZ VOCAL FRACTIONNÉ (déclenché si < 50% de mots ratés)
+   Au lieu de rejouer tout le verset, on cible uniquement les
+   mots ratés, groupés par consécutivité, et on demande à
+   l'utilisateur de répéter chaque groupe après avoir entendu
+   le passage qui le précède immédiatement.
+   ══════════════════════════════════════════════ */
+
+// Regroupe les mots ratés consécutifs (même verset, indices contigus)
+function groupConsecutiveFails(allWords) {
+  // allWords est déjà dans l'ordre verset/mot (boucles for/forEach séquentielles)
+  const groups = [];
+  let cur = null;
+  allWords.forEach((item, globalIdx) => {
+    if (!item.ok) {
+      if (cur && cur.vi === item.vi && globalIdx === cur._lastGlobalIdx + 1) {
+        cur.words.push(item.w);
+        cur._lastGlobalIdx = globalIdx;
+      } else {
+        if (cur) groups.push(cur);
+        cur = { vi: item.vi, words: [item.w], _lastGlobalIdx: globalIdx, _firstGlobalIdx: globalIdx };
+      }
+    } else {
+      if (cur) { groups.push(cur); cur = null; }
+    }
+  });
+  if (cur) groups.push(cur);
+  return groups;
+}
+
+// Phrase arabe demandant de répéter N mots (ou la suite de l'aya entière)
+function arabicRepeatPhrase(n, isFullRest) {
+  if (isFullRest) return "أعد من فضلك الآية التي تلي";
+  if (n === 1) return "أعد من فضلك الكلمة التي تلي";
+  if (n === 2) return "أعد من فضلك الكلمتين التي تليان";
+  if (n === 3) return "أعد من فضلك الكلمات الثلاث التي تلي";
+  if (n === 4) return "أعد من فضلك الكلمات الأربع التي تلي";
+  return "أعد من فضلك الكلمات التي تلي";
+}
+
+// ── Synthèse vocale (TTS) : fait DIRE le texte en arabe par l'app,
+// en plus de l'affichage textuel. Utilise l'API navigateur native
+// speechSynthesis (gratuite, voix arabe fournie par le système/Android),
+// cohérente avec ar-SA déjà utilisé pour la reconnaissance vocale.
+function speakArabic(text, onEnd) {
+  if (!('speechSynthesis' in window) || !text) {
+    if (onEnd) onEnd();
+    return;
+  }
+  try {
+    window.speechSynthesis.cancel(); // annule toute lecture en attente
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = "ar-SA";
+    utter.rate = 0.95;
+    let done = false;
+    function finish() {
+      if (done) return;
+      done = true;
+      if (onEnd) onEnd();
+    }
+    utter.onend = finish;
+    utter.onerror = finish;
+    // Filet de sécurité : si l'event onend ne se déclenche jamais
+    // (cas connu sur certains WebView Android), on continue quand même.
+    setTimeout(finish, 6000);
+    window.speechSynthesis.speak(utter);
+  } catch (e) {
+    if (onEnd) onEnd();
+  }
+}
+
+// Trouve, pour un groupe de mots ratés du verset vi, la fenêtre audio
+// du passage qui PRÉCÈDE ce groupe (pour faire écouter l'élan avant répétition).
+// On s'appuie sur wordCues (mêmes timings que ceux affichés mot à mot).
+function getPrecedingAudioWindow(vi, groupWordsCountFromStart) {
+  const vc = verseCues[vi];
+  if (!vc) return null;
+  const versetWords = wordCues.filter(c => c.start >= vc.start - 0.05 && c.start < vc.end);
+  if (!versetWords.length) return { start: vc.start, end: vc.start };
+  // groupWordsCountFromStart = index (0-based) du premier mot du groupe dans le verset
+  const idx = Math.max(0, Math.min(groupWordsCountFromStart, versetWords.length));
+  const endCue = versetWords[idx - 1];
+  return { start: vc.start, end: endCue ? endCue.end : vc.start };
+}
+
+function beginFractionedQuiz(allWords, onAllDone) {
+  const groups = groupConsecutiveFails(allWords);
+  if (!groups.length) { onAllDone(); return; }
+
+  // Calculer, pour chaque groupe, l'index (0-based) du premier mot du groupe DANS SON VERSET
+  // (nécessaire pour retrouver le passage qui précède via wordCues).
+  const wordIdxInVerse = {}; // vi -> compteur courant
+  allWords.forEach(item => {
+    if (wordIdxInVerse[item.vi] === undefined) wordIdxInVerse[item.vi] = -1;
+    wordIdxInVerse[item.vi]++;
+    item._idxInVerse = wordIdxInVerse[item.vi];
+  });
+  groups.forEach(g => {
+    const firstItem = allWords[g._firstGlobalIdx];
+    g.startIdxInVerse = firstItem._idxInVerse;
+  });
+
+  fracGroups = groups;
+  fracGroupIdx = 0;
+  fracOnDone = onAllDone;
+  phase = "exam_fractioned";
+  playFracGroupPrompt();
+}
+
+function playFracGroupPrompt() {
+  if (fracGroupIdx >= fracGroups.length) {
+    phase = "exam";
+    fracGroups = []; fracGroupIdx = 0;
+    const done = fracOnDone; fracOnDone = null;
+    if (done) done();
+    return;
+  }
+  const g = fracGroups[fracGroupIdx];
+  const vc = verseCues[g.vi];
+  const verseWordsTotal = (verses[g.vi] || "").split(/\s+/).filter(Boolean).length;
+  const isFullRest = (g.startIdxInVerse + g.words.length) >= verseWordsTotal && g.words.length > 4;
+
+  finalTx = ""; lastFullTx = "";
+  G("card-listen").classList.add("hidden");
+  G("card-recite").classList.remove("hidden");
+  G("card-result").classList.add("hidden");
+  G("exam-ayahs-box").classList.add("hidden");
+  G("phase-label-recite").textContent = "تصحيح مُركَّز — الآية " + (g.vi + 1);
+  const promptPhrase = arabicRepeatPhrase(g.words.length, isFullRest);
+  G("rec-hint").textContent = promptPhrase;
+  G("rec-status").textContent = "...";
+  G("transcript").style.display = "none";
+  G("mic-ring").classList.remove("on");
+  G("btn-rec-start").classList.add("hidden");
+  G("btn-rec-stop").classList.add("hidden");
+  G("card-recite").scrollIntoView({ behavior:"smooth", block:"start" });
+
+  // Jouer le passage qui précède le groupe, comme élan avant répétition
+  const win = getPrecedingAudioWindow(g.vi, g.startIdxInVerse);
+  const p = G("audio-player");
+  function startMicForGroup() {
+    G("rec-status").textContent = "اضغط الزر وكرر ما طُلب";
+    G("btn-rec-start").classList.remove("hidden");
+  }
+  function playPrecedingPassage() {
+    G("rec-status").textContent = "استمع أولاً...";
+    if (!win || win.end <= win.start + 0.05 || !audioUrl) {
+      startMicForGroup();
+      return;
+    }
+    window._activeWindow = { start: win.start, end: win.end };
+    window._activeCues = [];
+    playing = true; stopped = false;
+    if (p._loadedUrl !== audioUrl) { p.src = audioUrl; p._loadedUrl = audioUrl; p.load(); }
+    playOnce(() => { startMicForGroup(); });
+  }
+  // On DIT la phrase d'abord (en plus de l'afficher), puis on joue le
+  // passage audio précédent, puis on active le micro.
+  speakArabic(promptPhrase, playPrecedingPassage);
+}
+
+// Appelée par btn-rec-stop quand phase === "exam_fractioned" (voir hook plus bas)
+function evaluateFracGroup() {
+  const heard = norm(finalTx);
+  const g = fracGroups[fracGroupIdx];
+  if (!g) { playFracGroupPrompt(); return; }
+  const heardWordsArr = heard.split(/\s+/).filter(Boolean);
+  const results = alignWords(g.words, heardWordsArr);
+  const allOk = results.every(Boolean);
+  showVerseWithMisses([g.vi], heard);
+  G("rec-status").textContent = allOk ? "✅ صحيح، أحسنت!" : "❌ أعد المحاولة";
+  setTimeout(() => {
+    setWord("—");
+    if (allOk) {
+      fracGroupIdx++;
+    }
+    // Si échec : on relance le MÊME groupe (même question, même passage précédent)
+    playFracGroupPrompt();
+  }, allOk ? 1400 : 1800);
 }
 
 /* ── startNormalSession : lance la session habituelle d'apprentissage ── */
@@ -1952,6 +2265,20 @@ document.addEventListener('DOMContentLoaded', () => {
           // Délai pour laisser les instances précédentes se fermer proprement
           setTimeout(() => {
             if (phase === "exam" && !revMode) beginExamPhase();
+          }, 400);
+        }
+        if (phase === "exam_fractioned" && !revMode) {
+          window._recogActive = false;
+          if (recog) { try { recog.stop(); } catch(e) {} recog = null; }
+          const SRPlugin = window.Capacitor?.Plugins?.SpeechRecognition;
+          if (SRPlugin) {
+            try { SRPlugin.stop(); } catch(e) {}
+            if (window._srListener) { try { window._srListener.remove(); } catch(e){} window._srListener = null; }
+          }
+          G("mic-ring").classList.remove("on");
+          finalTx = ""; lastFullTx = "";
+          setTimeout(() => {
+            if (phase === "exam_fractioned" && !revMode) playFracGroupPrompt();
           }, 400);
         }
       }, 300);
