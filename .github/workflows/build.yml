@@ -15,7 +15,7 @@ jobs:
       - name: Build and Patch
         run: |
           mkdir -p www
-          python3 inject.py
+          cp index.html www/
           cp *.mp3 www/ 2>/dev/null || true
           echo '{"name":"tilawa","version":"1.0.0","private":true}' > package.json
           npm install @capacitor/core@5 @capacitor/cli@5 @capacitor/android@5 @capacitor-community/speech-recognition@5
