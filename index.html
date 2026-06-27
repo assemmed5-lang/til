@@ -7036,7 +7036,7 @@ function playOnce(onEnd) {
           setWord(cue.text);
           G("current-word-label").textContent = cue.text;
         }
-      }, 80);
+      }, 30);
     }
 
     if (phase === "listen") {
@@ -7377,7 +7377,7 @@ async function startRecog() {
         setTimeout(() => {
           if (!window._recogActive) return;
           try { recog = makeRecog(); recog.start(); } catch(e2) {}
-        }, 80);
+        }, 30);
       }
     }
 
