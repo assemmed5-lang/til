@@ -23,6 +23,8 @@ jobs:
           npx cap add android
           npx cap sync android
           cp -r data android/app/src/main/assets/public/data/
+          ls android/app/src/main/assets/public/data/ || echo "DOSSIER DATA ABSENT"
+          cat android/app/src/main/assets/public/data/banque_sourates.js | head -5 || echo "FICHIER ABSENT"
           GRADLE_FILE="android/app/build.gradle"
           sed -i "s/versionCode [0-9]*/versionCode ${{ github.run_number }}/" "$GRADLE_FILE"
           sed -i "s/versionName \"[^\"]*\"/versionName \"1.0.${{ github.run_number }}\"/" "$GRADLE_FILE"
