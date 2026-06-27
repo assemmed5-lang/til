@@ -22,7 +22,8 @@ jobs:
           python3 -c "import json; open('capacitor.config.json','w').write(json.dumps({'appId':'com.tilawa.sourate','appName':'Tilawa','webDir':'www','androidScheme':'https','android':{'allowMixedContent':True}}, indent=2))"
           npx cap add android
           npx cap sync android
-          cp -r data android/app/src/main/assets/public/data/
+          mkdir -p android/app/src/main/assets/public/data
+          cp -r data/* android/app/src/main/assets/public/data/
           ls android/app/src/main/assets/public/data/ || echo "DOSSIER DATA ABSENT"
           cat android/app/src/main/assets/public/data/banque_sourates.js | head -5 || echo "FICHIER ABSENT"
           GRADLE_FILE="android/app/build.gradle"
