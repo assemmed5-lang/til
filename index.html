@@ -8077,14 +8077,7 @@ function evaluate() {
       setWord("—");
       advanceAfterPass();
     }, 2800);
-  } else if (failRatio < 0.5) {
-    // Moins de 50% de mots ratés → quiz vocal fractionné ciblé sur les mots ratés
-    setTimeout(() => {
-      setWord("—");
-      beginFractionedQuiz(allWords, advanceAfterPass);
-    }, 1500);
   } else {
-    // 50% ou plus de mots ratés → réexamen complet classique
     setTimeout(() => {
       setWord("—");
       const allIndices = [];
