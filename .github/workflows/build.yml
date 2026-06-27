@@ -18,39 +18,12 @@ jobs:
           cp index.html www/
           cp banque_sourates.js www/ 2>/dev/null || true
           cp -r data www/ 2>/dev/null || true
-
-          echo "=== Contenu de la racine du repo ==="
-          ls -la
-
-          echo "=== Contenu du dossier data/ (avant copie) ==="
-          ls -la data/ || echo "ERREUR: le dossier data/ n'existe pas a la racine"
-
-          cp -r data www/
-
-          echo "=== Contenu de www/ apres copie ==="
-          ls -la www/
-          echo "=== Contenu de www/data/ apres copie ==="
-          ls -la www/data/ || echo "ERREUR: www/data/ n'existe pas apres la copie"
-
-          if [ ! -f "www/data/banque_sourates.js" ]; then
-            echo "ERREUR FATALE: www/data/banque_sourates.js est absent. Arret du build."
-            exit 1
-          fi
-          echo "OK: www/data/banque_sourates.js present, taille:"
-          wc -c www/data/banque_sourates.js
-
           cp *.mp3 www/ 2>/dev/null || true
           echo '{"name":"tilawa","version":"1.0.0","private":true}' > package.json
           npm install @capacitor/core@5 @capacitor/cli@5 @capacitor/android@5 @capacitor-community/speech-recognition@5
           python3 -c "import json; open('capacitor.config.json','w').write(json.dumps({'appId':'com.tilawa.sourate','appName':'Tilawa','webDir':'www','androidScheme':'https','android':{'allowMixedContent':True}}, indent=2))"
           npx cap add android
           npx cap sync android
-
-          echo "=== Contenu de android/app/src/main/assets/public/ apres cap sync ==="
-          ls -la android/app/src/main/assets/public/ || true
-          echo "=== Contenu de android/app/src/main/assets/public/data/ apres cap sync ==="
-          ls -la android/app/src/main/assets/public/data/ || echo "ERREUR: data/ absent dans les assets Android apres cap sync"
-
           GRADLE_FILE="android/app/build.gradle"
           sed -i "s/versionCode [0-9]*/versionCode ${{ github.run_number }}/" "$GRADLE_FILE"
           sed -i "s/versionName \"[^\"]*\"/versionName \"1.0.${{ github.run_number }}\"/" "$GRADLE_FILE"
