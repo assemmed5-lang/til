@@ -7003,6 +7003,7 @@ function playOnce(onEnd) {
     if (ended) return;
     ended = true;
     if (window._wTimer) { clearInterval(window._wTimer); window._wTimer = null; }
+    p.ontimeupdate = null;
     p.onended = null;
     p.oncanplaythrough = null;
     setWord("—");
@@ -7020,23 +7021,23 @@ function playOnce(onEnd) {
     let stuckCount = 0;
 
     function startInterval() {
-      window._wTimer = setInterval(() => {
-        if (stopped) { p.pause(); safeEnd(); return; }
+      p.ontimeupdate = () => {
+        if (stopped) { p.pause(); p.ontimeupdate = null; safeEnd(); return; }
         const t = p.currentTime;
         if (t === lastTime) {
           stuckCount++;
-          if (stuckCount > 15) { p.pause(); safeEnd(); return; }
+          if (stuckCount > 30) { p.pause(); p.ontimeupdate = null; safeEnd(); return; }
         } else {
           stuckCount = 0;
           lastTime = t;
         }
-        if (t >= endTime - 0.05) { p.pause(); safeEnd(); return; }
+        if (t >= endTime) { p.pause(); p.ontimeupdate = null; safeEnd(); return; }
         const cue = activeCues.find(c => t >= c.start && t < c.end);
         if (cue) {
           setWord(cue.text);
           G("current-word-label").textContent = cue.text;
         }
-      }, 30);
+      };
     }
 
     if (phase === "listen") {
@@ -7377,7 +7378,7 @@ async function startRecog() {
         setTimeout(() => {
           if (!window._recogActive) return;
           try { recog = makeRecog(); recog.start(); } catch(e2) {}
-        }, 30);
+        }, 80);
       }
     }
 
@@ -8076,14 +8077,7 @@ function evaluate() {
       setWord("—");
       advanceAfterPass();
     }, 2800);
-  } else if (failRatio < 0.5) {
-    // Moins de 50% de mots ratés → quiz vocal fractionné ciblé sur les mots ratés
-    setTimeout(() => {
-      setWord("—");
-      beginFractionedQuiz(allWords, advanceAfterPass);
-    }, 1500);
   } else {
-    // 50% ou plus de mots ratés → réexamen complet classique
     setTimeout(() => {
       setWord("—");
       const allIndices = [];
