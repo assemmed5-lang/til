@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -7003,7 +7004,6 @@ function playOnce(onEnd) {
     if (ended) return;
     ended = true;
     if (window._wTimer) { clearInterval(window._wTimer); window._wTimer = null; }
-    p.ontimeupdate = null;
     p.onended = null;
     p.oncanplaythrough = null;
     setWord("—");
@@ -7021,23 +7021,23 @@ function playOnce(onEnd) {
     let stuckCount = 0;
 
     function startInterval() {
-      p.ontimeupdate = () => {
-        if (stopped) { p.pause(); p.ontimeupdate = null; safeEnd(); return; }
+      window._wTimer = setInterval(() => {
+        if (stopped) { p.pause(); safeEnd(); return; }
         const t = p.currentTime;
         if (t === lastTime) {
           stuckCount++;
-          if (stuckCount > 30) { p.pause(); p.ontimeupdate = null; safeEnd(); return; }
+          if (stuckCount > 15) { p.pause(); safeEnd(); return; }
         } else {
           stuckCount = 0;
           lastTime = t;
         }
-        if (t >= endTime) { p.pause(); p.ontimeupdate = null; safeEnd(); return; }
+        if (t >= endTime - 0.06) { p.pause(); safeEnd(); return; }
         const cue = activeCues.find(c => t >= c.start && t < c.end);
         if (cue) {
           setWord(cue.text);
           G("current-word-label").textContent = cue.text;
         }
-      };
+      }, 80);
     }
 
     if (phase === "listen") {
