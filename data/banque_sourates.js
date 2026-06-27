@@ -1,5 +1,4 @@
 const BANQUE_SOURATES = [
-
   {
     nom: "الفاتحة",
     mp3: "001.mp3",
@@ -6140,6 +6139,5 @@ const BANQUE_SOURATES = [
 00:01:20,444 --> 00:01:22,084
 وَمُوسى`
   },
-
   
 ];
