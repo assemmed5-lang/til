@@ -14,11 +14,12 @@ jobs:
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > tilawa.jks
       - name: Build and Patch
         run: |
-          mkdir -p www
+          mkdir -p www/data
           cp index.html www/
           cp *.mp3 www/ 2>/dev/null || true
-          mkdir -p www/data
           cp -r data/* www/data/
+          ls -la www/
+          ls -la www/data/
           echo '{"name":"tilawa","version":"1.0.0","private":true}' > package.json
           npm install @capacitor/core@5 @capacitor/cli@5 @capacitor/android@5 @capacitor-community/speech-recognition@5
           python3 -c "import json; open('capacitor.config.json','w').write(json.dumps({'appId':'com.tilawa.sourate','appName':'Tilawa','webDir':'www','androidScheme':'https','android':{'allowMixedContent':True}}, indent=2))"
