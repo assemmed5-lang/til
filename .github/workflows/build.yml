@@ -18,6 +18,7 @@ jobs:
           cp index.html www/
           cp *.mp3 www/ 2>/dev/null || true
           cp -r data/* www/data/
+          sed -i '1s/^\xEF\xBB\xBF//' www/data/banque_sourates.js
           ls -la www/
           ls -la www/data/
           echo '{"name":"tilawa","version":"1.0.0","private":true}' > package.json
