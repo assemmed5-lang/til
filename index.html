@@ -7472,17 +7472,16 @@ G("btn-rec-stop").addEventListener("click", () => {
 function playGroupOnce(then) {
   const indices = [];
   for (let i = 0; i <= curVerseIdx; i++) indices.push(i);
-  function playNext() {
-    if (!indices.length) { G("audio-player").playbackRate = 1.0; then(); return; }
-    const vi = indices.shift();
-    const vc = verseCues[vi];
-    if (!vc) { playNext(); return; }
-    window._activeWindow = { start: vc.start, end: vc.end };
-    window._activeCues = wordCues.filter(c => c.start >= vc.start - 0.05 && c.start < vc.end);
-    G("audio-player").playbackRate = 1.0;
-    playOnce(playNext);
-  }
-  playNext();
+  
+  // Une seule fenêtre du début du verset 0 à la fin du dernier verset
+  const firstVc = verseCues[indices[0]];
+  const lastVc  = verseCues[indices[indices.length - 1]];
+  if (!firstVc || !lastVc) { then(); return; }
+  
+  window._activeWindow = { start: firstVc.start, end: lastVc.end };
+  window._activeCues = wordCues.filter(c => c.start >= firstVc.start - 0.05 && c.start < lastVc.end);
+  G("audio-player").playbackRate = 1.0;
+  playOnce(then);
 }
 
 function advanceAfterPass() {
