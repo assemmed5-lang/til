@@ -14,22 +14,14 @@ jobs:
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > tilawa.jks
       - name: Build and Patch
         run: |
-          mkdir -p www/data
-          cp index.html www/
+          mkdir -p www
+          python3 inject.py
           cp *.mp3 www/ 2>/dev/null || true
-          cp -r data/* www/data/
-          sed -i '1s/^\xEF\xBB\xBF//' www/data/banque_sourates.js
-          ls -la www/
-          ls -la www/data/
           echo '{"name":"tilawa","version":"1.0.0","private":true}' > package.json
           npm install @capacitor/core@5 @capacitor/cli@5 @capacitor/android@5 @capacitor-community/speech-recognition@5
           python3 -c "import json; open('capacitor.config.json','w').write(json.dumps({'appId':'com.tilawa.sourate','appName':'Tilawa','webDir':'www','androidScheme':'https','android':{'allowMixedContent':True}}, indent=2))"
           npx cap add android
           npx cap sync android
-          mkdir -p android/app/src/main/assets/public/data
-          cp -r data/* android/app/src/main/assets/public/data/
-          ls android/app/src/main/assets/public/data/ || echo "DOSSIER DATA ABSENT"
-          cat android/app/src/main/assets/public/data/banque_sourates.js | head -5 || echo "FICHIER ABSENT"
           GRADLE_FILE="android/app/build.gradle"
           sed -i "s/versionCode [0-9]*/versionCode ${{ github.run_number }}/" "$GRADLE_FILE"
           sed -i "s/versionName \"[^\"]*\"/versionName \"1.0.${{ github.run_number }}\"/" "$GRADLE_FILE"
