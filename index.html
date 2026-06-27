@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -7031,7 +7032,7 @@ function playOnce(onEnd) {
           lastTime = t;
         }
         if (t >= endTime - 0.06) { p.pause(); safeEnd(); return; }
-        const cue = activeCues.find(c => t >= c.start && t < c.end && c.start < endTime);
+        const cue = activeCues.find(c => t >= c.start && t < c.end);
         if (cue) {
           setWord(cue.text);
           G("current-word-label").textContent = cue.text;
@@ -7179,7 +7180,7 @@ function tick() {
     updateBarRep();
     const win = window._activeWindow;
     const segDur = win ? Math.max((win.end - win.start) * 1000, 600) : 600;
-    const rate = (phase === "listen") ? G("audio-player").playbackRate : 1.0;
+    const rate = (phase === "listen") ? ((repCur - 1) < 5 ? 0.75 : 1.0) : 1.0;
     const pauseDur = (segDur / rate) * 1.5;
 
     const SRBrowser = window.SpeechRecognition || window.webkitSpeechRecognition;
