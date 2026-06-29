@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -377,7 +378,7 @@ const BANQUE_SOURATES = [
   },
 
   {
-    nom: "الاخلاص",
+    nom: "الإخلاص",
     mp3: "112.mp3",
     srtVersets: `1
 00:00:00,040 --> 00:00:02,922
@@ -6525,10 +6526,30 @@ function norm(s) {
     .replace(/\s+/g," ").trim().toLowerCase();
 }
 
-// Deux mots normalisés sont considérés "identiques" avec la même tolérance
-// de préfixe utilisée historiquement dans l'app (fautes de reconnaissance/troncature).
+// Distance d'édition (Levenshtein) <= 1 : tolère 1 lettre ajoutée, manquante
+// ou substituée, à n'importe quelle position dans le mot (pas seulement au début).
+function levenshtein1(a, b) {
+  if (a === b) return true;
+  const la = a.length, lb = b.length;
+  if (Math.abs(la - lb) > 1) return false;
+  let i = 0, j = 0, diff = 0;
+  while (i < la && j < lb) {
+    if (a[i] === b[j]) { i++; j++; continue; }
+    diff++;
+    if (diff > 1) return false;
+    if (la === lb) { i++; j++; }
+    else if (la > lb) { i++; }
+    else { j++; }
+  }
+  diff += (la - i) + (lb - j);
+  return diff <= 1;
+}
+
+// Deux mots normalisés sont considérés "identiques" avec une tolérance
+// d'une lettre (ajout/suppression/substitution) pour absorber les fautes
+// de reconnaissance vocale.
 function wordsMatch(nw, hw) {
-  return hw === nw || (nw.length > 4 && (hw.startsWith(nw.slice(0,4)) || nw.startsWith(hw.slice(0,4))));
+  return hw === nw || levenshtein1(nw, hw);
 }
 
 // ══════════════════════════════════════════════
