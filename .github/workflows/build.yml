@@ -9,9 +9,47 @@ jobs:
         with: { node-version: 22 }
       - uses: actions/setup-java@v4
         with: { java-version: '17', distribution: 'temurin' }
+
       - name: Decode keystore
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > tilawa.jks
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > tilawa_raw.jks
+
+      - name: Detect keystore type
+        id: detect
+        run: |
+          SIZE=$(stat -c%s tilawa_raw.jks)
+          echo "Decoded keystore size: $SIZE bytes"
+          if [ "$SIZE" -lt 500 ]; then
+            echo "ERROR: decoded file is suspiciously small — KEYSTORE_BASE64 secret is likely truncated or wrong."
+            exit 1
+          fi
+          MAGIC=$(xxd -p -l4 tilawa_raw.jks)
+          echo "First 4 bytes (hex): $MAGIC"
+          if [ "$MAGIC" == "feedfeed" ]; then
+            echo "Detected format: JKS"
+            echo "store_type=JKS" >> "$GITHUB_OUTPUT"
+          elif [[ "$MAGIC" == 3082* ]]; then
+            echo "Detected format: PKCS12"
+            echo "store_type=PKCS12" >> "$GITHUB_OUTPUT"
+          else
+            echo "ERROR: unrecognized keystore format (magic bytes: $MAGIC)."
+            echo "KEYSTORE_BASE64 is likely corrupted."
+            exit 1
+          fi
+
+      - name: Normalize keystore to real JKS format
+        run: |
+          keytool -importkeystore \
+            -srckeystore tilawa_raw.jks -srcstoretype "${{ steps.detect.outputs.store_type }}" \
+            -srcalias "${{ secrets.KEY_ALIAS }}" \
+            -srcstorepass "${{ secrets.KEYSTORE_PASSWORD }}" \
+            -srckeypass "${{ secrets.KEY_PASSWORD }}" \
+            -destkeystore tilawa.jks -deststoretype JKS \
+            -deststorepass "${{ secrets.KEYSTORE_PASSWORD }}" \
+            -destkeypass "${{ secrets.KEY_PASSWORD }}"
+          echo "Keystore normalized to genuine JKS format."
+          keytool -list -keystore tilawa.jks -storepass "${{ secrets.KEYSTORE_PASSWORD }}"
+
       - name: Build and Patch
         run: |
           mkdir -p www
@@ -59,6 +97,7 @@ jobs:
             -Pandroid.injected.signing.store.password=${{ secrets.KEYSTORE_PASSWORD }} \
             -Pandroid.injected.signing.key.alias=${{ secrets.KEY_ALIAS }} \
             -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD }}
+
       - uses: actions/upload-artifact@v4
         with:
           name: mon-apk
