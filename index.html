@@ -7617,6 +7617,7 @@ function markReviewDone(suraIdx) {
  */
 function getDueReviews() {
   const a = loadAcquired();
+  return [];
   const now = Date.now();
   const DAY = 24 * 60 * 60 * 1000;
   const due = [];
