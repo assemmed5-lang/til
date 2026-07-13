@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -6259,6 +6258,44 @@ audio { position:fixed; bottom:-100px; left:-100px; width:1px; height:1px; }
 }
 .kid-btn:active { background: var(--green-dark); }
 
+/* ─── Panneau admin (⚙ modification manuelle de la progression) ─── */
+#btn-admin-gear {
+  position: fixed; top: 16px; left: 16px; z-index: 10000;
+  width: 46px; height: 46px; border-radius: 50%; border: none;
+  background: rgba(255,255,255,0.08); color: #c8b87e;
+  font-size: 22px; cursor: pointer;
+}
+#btn-admin-gear:active { background: rgba(255,255,255,0.18); }
+#admin-panel {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+  z-index: 10001; display: none;
+  align-items: center; justify-content: center; padding: 20px;
+}
+#admin-panel.show { display: flex; }
+#admin-panel-box {
+  background: #1a1208; border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 16px; padding: 20px; width: 100%; max-width: 420px;
+  max-height: 90vh; overflow-y: auto;
+}
+#admin-panel-box h3 { color: #f5e6c0; font-size: 1.3rem; margin-bottom: 16px; text-align: center; }
+.admin-row { margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.admin-row label { display: block; color: #c8b87e; font-size: 1rem; margin-bottom: 6px; font-weight: 700; }
+.admin-row select, .admin-row input {
+  width: 100%; padding: 10px; border-radius: 8px; border: none;
+  background: rgba(255,255,255,0.08); color: #f5e6c0; font-size: 1rem;
+  margin-bottom: 8px; font-family: inherit;
+}
+.admin-row button {
+  width: 100%; padding: 10px; border-radius: 8px; border: none;
+  background: var(--green-mid); color: #fff; font-weight: 700; cursor: pointer;
+  font-family: inherit; font-size: 1rem;
+}
+.admin-row .admin-saved { color: var(--green-mid); font-size: 0.85rem; margin-top: 4px; display: none; }
+#btn-admin-close {
+  width: 100%; padding: 10px; margin-top: 6px; border-radius: 8px; border: none;
+  background: rgba(255,255,255,0.1); color: #ccc; cursor: pointer; font-family: inherit;
+}
+
 /* ── Barres anti-stress ── */
 #bar-surah-wrap {
   width: 90%; max-width: 360px; margin: 0 auto 16px;
@@ -6327,6 +6364,7 @@ audio { position:fixed; bottom:-100px; left:-100px; width:1px; height:1px; }
   <button class="kid-btn" data-kid="meriem">مريم</button>
   <button class="kid-btn" data-kid="adam">آدم</button>
   <button class="kid-btn" data-kid="yahia">يحيى</button>
+  <button id="btn-admin-gear">⚙</button>
 </div>
 <div id="review-screen" style="display:none">
   <h2>وقت المراجعة! 📖</h2>
@@ -6336,6 +6374,13 @@ audio { position:fixed; bottom:-100px; left:-100px; width:1px; height:1px; }
   <button class="rev-btn" style="background:rgba(255,255,255,0.1);color:#aaa;margin-top:0" id="btn-skip-review">تخطّ الآن (لن تُحفظ)</button>
 </div>
 <div id="review-phase-label"></div>
+<div id="admin-panel">
+  <div id="admin-panel-box">
+    <h3>تعديل تقدّم الأطفال</h3>
+    <div id="admin-rows"></div>
+    <button id="btn-admin-close">إغلاق</button>
+  </div>
+</div>
 <div id="sura-list-flash">
   <div id="sura-list-grid"></div>
 </div>
@@ -8179,6 +8224,116 @@ document.querySelectorAll(".kid-btn").forEach(btn => {
       alert("خطأ: " + err.message);
     }
   });
+});
+
+/* ─── PANNEAU ADMIN : modification manuelle de la progression ─── */
+const ADMIN_KIDS = [
+  { id: "meriem", nom: "مريم" },
+  { id: "adam",   nom: "آدم"  },
+  { id: "yahia",  nom: "يحيى" }
+];
+
+function kidKeyFor(kid, base) { return "tilawa_" + kid + "_" + base; }
+
+function suraVerseCount(suraIdx) {
+  const s = BANQUE_SOURATES[suraIdx];
+  if (!s) return 1;
+  const n = parseSRT(s.srtVersets).length;
+  return n > 0 ? n : 1;
+}
+
+function getKidCurrentProgress(kid) {
+  let suraIdx = 0, verseNum = 1;
+  try {
+    const st = JSON.parse(localStorage.getItem(kidKeyFor(kid, "state")));
+    if (st && typeof st.curSuraIdx === "number") suraIdx = st.curSuraIdx;
+    if (st && typeof st.curVerseIdx === "number") verseNum = st.curVerseIdx + 1;
+  } catch(e) {}
+  if (!(suraIdx >= 0) || suraIdx >= BANQUE_SOURATES.length) suraIdx = 0;
+  return { suraIdx: suraIdx, verseNum: verseNum };
+}
+
+function buildAdminPanel() {
+  const wrap = G("admin-rows");
+  wrap.innerHTML = "";
+  ADMIN_KIDS.forEach(k => {
+    const cur = getKidCurrentProgress(k.id);
+    const row = document.createElement("div");
+    row.className = "admin-row";
+
+    const label = document.createElement("label");
+    label.textContent = k.nom;
+
+    const sel = document.createElement("select");
+    BANQUE_SOURATES.forEach((s, i) => {
+      const opt = document.createElement("option");
+      opt.value = i;
+      opt.textContent = s.nom;
+      if (i === cur.suraIdx) opt.selected = true;
+      sel.appendChild(opt);
+    });
+
+    const inp = document.createElement("input");
+    inp.type = "number";
+    inp.min = "1";
+    inp.max = String(suraVerseCount(cur.suraIdx));
+    inp.value = String(Math.min(cur.verseNum, suraVerseCount(cur.suraIdx)));
+
+    sel.addEventListener("change", () => {
+      const maxV = suraVerseCount(parseInt(sel.value));
+      inp.max = String(maxV);
+      if (parseInt(inp.value) > maxV) inp.value = String(maxV);
+    });
+
+    const btn = document.createElement("button");
+    btn.textContent = "حفظ — " + k.nom;
+
+    const savedMsg = document.createElement("div");
+    savedMsg.className = "admin-saved";
+    savedMsg.textContent = "✓ تم الحفظ";
+
+    btn.addEventListener("click", () => {
+      const suraIdx = parseInt(sel.value);
+      const maxV = suraVerseCount(suraIdx);
+      let verseNum = parseInt(inp.value) || 1;
+      verseNum = Math.max(1, Math.min(verseNum, maxV));
+      adminSaveProgress(k.id, suraIdx, verseNum);
+      savedMsg.style.display = "block";
+      setTimeout(() => { savedMsg.style.display = "none"; }, 1800);
+    });
+
+    row.appendChild(label);
+    row.appendChild(sel);
+    row.appendChild(inp);
+    row.appendChild(btn);
+    row.appendChild(savedMsg);
+    wrap.appendChild(row);
+  });
+}
+
+function adminSaveProgress(kid, suraIdx, verseNum) {
+  const verseIdx = Math.max(0, verseNum - 1);
+  const data = {
+    curVerseIdx: verseIdx,
+    phase: "listen",
+    repCur: 0,
+    repTotal: 10,
+    examSolo: true,
+    examUpTo: 0,
+    curSuraIdx: suraIdx,
+    updatedAt: Date.now()
+  };
+  try { localStorage.setItem(kidKeyFor(kid, "state"), JSON.stringify(data)); } catch(e) {}
+  try { localStorage.setItem(kidKeyFor(kid, "sura"), suraIdx); } catch(e) {}
+  try { fbDB.ref("tilawa/" + kid + "/state").set(data); } catch(e) {}
+}
+
+G("btn-admin-gear").addEventListener("click", () => {
+  buildAdminPanel();
+  G("admin-panel").classList.add("show");
+});
+G("btn-admin-close").addEventListener("click", () => {
+  G("admin-panel").classList.remove("show");
 });
 
 function requestPermissionAndStart() {
