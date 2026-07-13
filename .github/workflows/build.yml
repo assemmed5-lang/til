@@ -60,6 +60,8 @@ jobs:
           python3 -c "import json; open('capacitor.config.json','w').write(json.dumps({'appId':'com.tilawa.sourate','appName':'Tilawa','webDir':'www','androidScheme':'https','android':{'allowMixedContent':True}}, indent=2))"
           npx cap add android
           npx cap sync android
+          npm install @capacitor/assets --save-dev
+          npx capacitor-assets generate --android
           GRADLE_FILE="android/app/build.gradle"
           sed -i "s/versionCode [0-9]*/versionCode ${{ github.run_number }}/" "$GRADLE_FILE"
           sed -i "s/versionName \"[^\"]*\"/versionName \"1.0.${{ github.run_number }}\"/" "$GRADLE_FILE"
