@@ -8311,6 +8311,29 @@ function buildAdminPanel() {
   });
 }
 
+function loadAcquiredFor(kid) {
+  try { return JSON.parse(localStorage.getItem(kidKeyFor(kid, "acquired")) || "{}"); } catch(e) { return {}; }
+}
+
+function saveAcquiredFor(kid, a) {
+  try { localStorage.setItem(kidKeyFor(kid, "acquired"), JSON.stringify(a)); } catch(e) {}
+  try { fbDB.ref("tilawa/" + kid + "/acquired").set(a); } catch(e) {}
+}
+
+/* Marque comme acquises toutes les sourates avant celle choisie par l'admin,
+   pour qu'elles apparaissent en vert dans la liste flash de l'accueil. */
+function adminMarkPriorSurasAcquired(kid, suraIdx) {
+  const a = loadAcquiredFor(kid);
+  let changed = false;
+  for (let i = 0; i < suraIdx; i++) {
+    if (!a[i]) {
+      a[i] = { learnedAt: Date.now(), lastReviewedAt: null, reviewCount: 0 };
+      changed = true;
+    }
+  }
+  if (changed) saveAcquiredFor(kid, a);
+}
+
 function adminSaveProgress(kid, suraIdx, verseNum) {
   const verseIdx = Math.max(0, verseNum - 1);
   const data = {
@@ -8326,6 +8349,7 @@ function adminSaveProgress(kid, suraIdx, verseNum) {
   try { localStorage.setItem(kidKeyFor(kid, "state"), JSON.stringify(data)); } catch(e) {}
   try { localStorage.setItem(kidKeyFor(kid, "sura"), suraIdx); } catch(e) {}
   try { fbDB.ref("tilawa/" + kid + "/state").set(data); } catch(e) {}
+  adminMarkPriorSurasAcquired(kid, suraIdx);
 }
 
 G("btn-admin-gear").addEventListener("click", () => {
