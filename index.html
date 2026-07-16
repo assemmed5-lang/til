@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -6755,6 +6754,10 @@ function buildExamQueueForVerse(vIdx) {
   const q = [];
   const lastOfBlock = isLastOfBlock(vIdx); // gère aussi les sourates dont la longueur n'est pas multiple de BLOCK_SIZE
 
+  // Chaque nouveau verset passe TOUJOURS un examen solo en premier (positions
+  // 1, 2, 3, 4, 5...), avant d'être inclus dans un examen de groupe.
+  q.push({ from: vIdx, to: vIdx, kind: "solo" });
+
   if (lastOfBlock) {
     // Fin de bloc (5 versets, ou moins si fin de sourate) → examen du bloc entier
     q.push({ from: bStart, to: vIdx, kind: "block" });
@@ -6762,13 +6765,8 @@ function buildExamQueueForVerse(vIdx) {
       // Puis fusion avec le bloc précédent (bloc précédent + bloc courant = 10 versets)
       q.push({ from: bStart - BLOCK_SIZE, to: vIdx, kind: "block" });
     }
-  } else if (pos === 1) {
-    q.push({ from: vIdx, to: vIdx, kind: "solo" });
-  } else if (pos === 2) {
-    q.push({ from: vIdx, to: vIdx, kind: "solo" });
-    q.push({ from: bStart, to: vIdx, kind: "block" });
-  } else {
-    // pos 3, 4... (milieu de bloc, hors dernier verset du bloc)
+  } else if (pos !== 1) {
+    // pos 2, 3, 4... (milieu de bloc, hors dernier verset du bloc)
     q.push({ from: bStart, to: vIdx, kind: "block" });
   }
   return q;
@@ -8258,7 +8256,7 @@ function evaluate() {
   // individuel dépasse le seuil : un léger accroc de reconnaissance vocale
   // sur un seul mot d'un bloc de 10 versets ne doit pas faire échouer tout
   // le bloc alors que la récitation globale était correcte.
-  const PASS_THRESHOLD = 70;
+  const PASS_THRESHOLD = examSolo ? 70 : 50;
   const allPassed = totalWordsCount > 0 && score >= PASS_THRESHOLD;
 
   if (allPassed) {
