@@ -8140,17 +8140,17 @@ function evaluate() {
   for (let vi = from; vi <= to; vi++) displayVerseIndices.push(vi);
   showVerseWithMisses(displayVerseIndices, heard);
 
-  // Score = % de versets qui passent (pas % de mots global) — gardé pour l'affichage
-  const passedVerses = verseResults.filter(r => r.passed).length;
-  const score = Math.round((passedVerses / verseResults.length) * 100);
+  // Score = % de MOTS corrects sur l'ensemble examiné (verset unique ou
+  // groupe de versets) — aligné avec ce qui est affiché à l'écran
+  // (showVerseWithMisses) et avec la tolérance lettre de wordsMatch.
   const box = G("score-box"); box.className = "score-box";
   const nm  = G("n-missing"), nx = G("n-extra");
   nm.classList.add("hidden"); nx.classList.add("hidden");
 
-  // ── Taux d'échec global au niveau MOT (toutes les mots examinés, tous versets confondus) ──
   const totalWordsCount  = allWords.length;
   const failedWordsCount = allWords.filter(x => !x.ok).length;
   const failRatio = totalWordsCount ? (failedWordsCount / totalWordsCount) : 0;
+  const score = totalWordsCount ? Math.round((1 - failRatio) * 100) : 0;
 
   if (score >= 70) {
     setTimeout(() => {
