@@ -8053,7 +8053,7 @@ function revEvaluateAll() {
   G("card-listen").classList.remove("hidden");
   showVerseWithMisses(revVerses.map((_, i) => i), heard);
 
-  if (score >= 70) {
+  if (score >= 50) {
     box.classList.add("ex");
     G("score-num").textContent = score + "%";
     G("score-lbl").textContent = "ممتاز! أتقنت السورة! 🌟";
@@ -8152,7 +8152,7 @@ function evaluate() {
   const failRatio = totalWordsCount ? (failedWordsCount / totalWordsCount) : 0;
   const score = totalWordsCount ? Math.round((1 - failRatio) * 100) : 0;
 
-  if (score >= 70) {
+  if (score >= 50) {
     setTimeout(() => {
       setWord("—");
       advanceAfterPass();
