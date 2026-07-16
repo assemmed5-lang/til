@@ -6730,6 +6730,99 @@ function blockStartOf(vIdx) { return Math.floor(vIdx / BLOCK_SIZE) * BLOCK_SIZE;
 function isLastOfBlock(vIdx) {
   return ((vIdx + 1) % BLOCK_SIZE === 0) || (vIdx === verses.length - 1);
 }
+// Position du verset DANS son bloc courant : 1 = premier verset du bloc, jusqu'à BLOCK_SIZE.
+function positionInBlock(vIdx) { return (vIdx - blockStartOf(vIdx)) + 1; }
+
+// Nombre de répétitions d'écoute pour un verset donné, selon sa position DANS
+// SON BLOC (se réinitialise à chaque nouveau bloc de 5) :
+//   position 1 → 1 répétition   position 2 → 1 répétition
+//   position 3 → 2 répétitions  position 4 → 3 répétitions
+//   position 5 → 4 répétitions
+function computeReps(vIdx) {
+  const pos = positionInBlock(vIdx);
+  return Math.max(1, pos - 1);
+}
+
+/* ── File des examens à faire passer pour le verset qu'on vient d'écouter ──
+   Chaque item : { from, to, kind } où kind ∈ "solo" | "block" | "final".
+   La file est traitée un item à la fois (startNextExamInQueue), et purgée
+   au fur et à mesure des réussites (onExamPassed). */
+let examQueue = [];
+
+function buildExamQueueForVerse(vIdx) {
+  const bStart = blockStartOf(vIdx);
+  const pos = positionInBlock(vIdx);
+  const q = [];
+  const lastOfBlock = isLastOfBlock(vIdx); // gère aussi les sourates dont la longueur n'est pas multiple de BLOCK_SIZE
+
+  if (lastOfBlock) {
+    // Fin de bloc (5 versets, ou moins si fin de sourate) → examen du bloc entier
+    q.push({ from: bStart, to: vIdx, kind: "block" });
+    if (bStart > 0) {
+      // Puis fusion avec le bloc précédent (bloc précédent + bloc courant = 10 versets)
+      q.push({ from: bStart - BLOCK_SIZE, to: vIdx, kind: "block" });
+    }
+  } else if (pos === 1) {
+    q.push({ from: vIdx, to: vIdx, kind: "solo" });
+  } else if (pos === 2) {
+    q.push({ from: vIdx, to: vIdx, kind: "solo" });
+    q.push({ from: bStart, to: vIdx, kind: "block" });
+  } else {
+    // pos 3, 4... (milieu de bloc, hors dernier verset du bloc)
+    q.push({ from: bStart, to: vIdx, kind: "block" });
+  }
+  return q;
+}
+
+/* Démarre (ou poursuit) l'examen en tête de file pour le verset courant. */
+function startNextExamInQueue() {
+  if (!examQueue.length) { onExamPassed(); return; }
+  const spec = examQueue[0];
+  examSolo      = spec.kind === "solo";
+  examFinal     = spec.kind === "final";
+  examBlockFrom = spec.from;
+  examUpTo = curVerseIdx;
+
+  if (spec.kind === "solo") {
+    // Le verset vient d'être écouté à l'instant : examen direct, pas de replay.
+    beginExamPhase();
+  } else {
+    // Bloc (ou examen final) : on rejoue l'ensemble une fois avant l'examen.
+    playGroupOnce(() => { beginExamPhase(); }, spec.from);
+  }
+}
+
+/* Appelée quand l'examen en tête de file vient d'être réussi. */
+function onExamPassed() {
+  updateBarSurah();
+
+  if (examQueue.length) examQueue.shift();
+
+  if (examQueue.length) {
+    // Il reste un ou plusieurs examens à passer pour ce même verset.
+    startNextExamInQueue();
+    return;
+  }
+
+  if (examFinal) {
+    // L'examen final (sourate entière) vient d'être réussi → sourate acquise.
+    examFinal = false;
+    showDone();
+    return;
+  }
+
+  if (curVerseIdx >= verses.length - 1) {
+    // Dernier verset de la sourate : lancer l'examen final (sourate complète).
+    examQueue = [{ from: 0, to: curVerseIdx, kind: "final" }];
+    startNextExamInQueue();
+    return;
+  }
+
+  // Sinon, passer au verset suivant.
+  curVerseIdx = curVerseIdx + 1;
+  examSolo = true; examFinal = false;
+  beginListenPhase();
+}
 
 /* ── État du quiz vocal fractionné (mots ratés < 50%) ── */
 let fracGroups = [];   // [{ vi, startIdx, endIdx, words:[...] }, ...]
@@ -6817,6 +6910,7 @@ function saveState() {
     examSolo: examSolo || false,
     examFinal: examFinal || false,
     examBlockFrom: examBlockFrom || 0,
+    examQueue: examQueue || [],
     examUpTo,
     curSuraIdx,
     updatedAt: Date.now()
@@ -6836,6 +6930,7 @@ function applyStateObj(s) {
   examSolo      = s.examSolo || false;
   examFinal     = s.examFinal || false;
   examBlockFrom = s.examBlockFrom || 0;
+  examQueue     = Array.isArray(s.examQueue) ? s.examQueue : [];
   examUpTo      = s.examUpTo || 0;
   if (typeof s.curSuraIdx === "number" && s.curSuraIdx >= 0 && s.curSuraIdx < BANQUE_SOURATES.length) {
     if (s.curSuraIdx !== curSuraIdx) {
@@ -6941,10 +7036,10 @@ function startSession() {
       for (let i = from2; i <= curVerseIdx; i++) allIndices.push(i);
       beginRetryListenPhase(allIndices);
     }
-    else { curVerseIdx=0; examUpTo=0; phase="idle"; retryMissing=[]; repCur=0; repTotal=10; examSolo=true; examFinal=false; examBlockFrom=0; beginListenPhase(); }
+    else { curVerseIdx=0; examUpTo=0; phase="idle"; retryMissing=[]; repCur=0; repTotal=10; examSolo=true; examFinal=false; examBlockFrom=0; examQueue=[]; beginListenPhase(); }
   } else {
     curVerseIdx=0; examUpTo=0; phase="idle"; retryMissing=[]; repCur=0; repTotal=10;
-    examSolo=true; examFinal=false; examBlockFrom=0;
+    examSolo=true; examFinal=false; examBlockFrom=0; examQueue=[];
     beginListenPhase();
   }
 }
@@ -6973,7 +7068,7 @@ function beginListenPhase(keepRep) {
   saveState();
   updateProgressTrack();
   showSuraListFlash();
-  const reps = Math.min(4, Math.max(0, curVerseIdx - 1));
+  const reps = computeReps(curVerseIdx);
   repTotal = reps;
   if (!keepRep) repCur = 0;
   G("btn-listen-start").disabled = false;
@@ -7244,10 +7339,6 @@ function tick() {
     G("btn-listen-stop").classList.add("hidden");
     G("rep-state").textContent = "✅ انتهى الاستماع! جاري الانتقال للتسميع...";
     setTimeout(() => {
-      if (phase !== "retry_listen") {
-        examUpTo = curVerseIdx;
-        examSolo = true;
-      }
       const oldRepTotal = repTotal;
       const oldRepCur = repCur;
       repTotal = 1; repCur = 5; // forcer vitesse normale pour la lecture finale
@@ -7255,7 +7346,14 @@ function tick() {
         repTotal = oldRepTotal;
         repCur = oldRepCur;
         G("audio-player").playbackRate = 1.0;
-        beginExamPhase();
+        if (phase === "retry_listen") {
+          // Réécoute après échec : on reprend le MÊME examen (from/to déjà en place).
+          beginExamPhase();
+        } else {
+          examUpTo = curVerseIdx;
+          examQueue = buildExamQueueForVerse(curVerseIdx);
+          startNextExamInQueue();
+        }
       });
     }, 1500);
     return;
@@ -7582,44 +7680,12 @@ function playGroupOnce(then, fromIdx) {
   playOnce(then);
 }
 
+/* Ancienne fonction de progression, remplacée par la file d'examens
+   (buildExamQueueForVerse / startNextExamInQueue / onExamPassed) qui gère
+   désormais : solo → paire → triplet → quadruplet → bloc de 5 → bloc de 10.
+   Conservée comme alias pour compatibilité. */
 function advanceAfterPass() {
-  updateBarSurah();
-
-  if (examSolo) {
-    // Vient de réussir l'examen SOLO du verset curVerseIdx.
-    if (isLastOfBlock(curVerseIdx)) {
-      // Fin de bloc → examen de consolidation
-      // (bloc seul si c'est le 1er bloc, sinon bloc précédent + bloc courant)
-      const bStart = blockStartOf(curVerseIdx);
-      examBlockFrom = (bStart === 0) ? 0 : (bStart - BLOCK_SIZE);
-      examFinal = false;
-      playGroupOnce(() => {
-        examSolo = false;
-        beginExamPhase();
-      }, examBlockFrom);
-    } else {
-      const next = curVerseIdx + 1;
-      curVerseIdx = next;
-      examSolo = true;
-      beginListenPhase();
-    }
-  } else if (!examFinal) {
-    // Vient de réussir l'examen de CONSOLIDATION du bloc courant.
-    if (curVerseIdx >= verses.length - 1) {
-      // Dernier bloc terminé → examen final (sourate entière)
-      examFinal = true;
-      playGroupOnce(() => { beginExamPhase(); }, 0);
-    } else {
-      const next = curVerseIdx + 1;
-      curVerseIdx = next;
-      examSolo = true;
-      beginListenPhase();
-    }
-  } else {
-    // Vient de réussir l'examen FINAL → sourate acquise.
-    examFinal = false;
-    showDone();
-  }
+  onExamPassed();
 }
 
 function showDone() {
@@ -7642,7 +7708,7 @@ function showDone() {
       chargerSourate(curSuraIdx);
       curVerseIdx=0; examUpTo=0; phase="idle"; repCur=0; repTotal=10;
       playing=false; stopped=false; finalTx=""; lastFullTx=""; examSolo=true;
-      examFinal=false; examBlockFrom=0;
+      examFinal=false; examBlockFrom=0; examQueue=[];
       retryMissing=[];
       G("card-result").classList.add("hidden");
       const p = document.querySelector("audio");
@@ -8187,13 +8253,18 @@ function evaluate() {
   const failRatio = totalWordsCount ? (failedWordsCount / totalWordsCount) : 0;
   const score = totalWordsCount ? Math.round((1 - failRatio) * 100) : 0;
 
-  // Réussite = tous les versets examinés atteignent le seuil de 70% (voir verseResults ci-dessus).
-  const allPassed = verseResults.length > 0 && verseResults.every(v => v.passed);
+  // Réussite = score global de l'ensemble examiné (verset seul ou bloc de
+  // plusieurs versets) au-dessus du seuil. On n'exige PAS que chaque verset
+  // individuel dépasse le seuil : un léger accroc de reconnaissance vocale
+  // sur un seul mot d'un bloc de 10 versets ne doit pas faire échouer tout
+  // le bloc alors que la récitation globale était correcte.
+  const PASS_THRESHOLD = 70;
+  const allPassed = totalWordsCount > 0 && score >= PASS_THRESHOLD;
 
   if (allPassed) {
     setTimeout(() => {
       setWord("—");
-      advanceAfterPass();
+      onExamPassed();
     }, 3500);
   } else {
     setTimeout(() => {
@@ -8230,7 +8301,7 @@ G("btn-restart").addEventListener("click", () => {
   localStorage.removeItem(kidKey("state"));
   curVerseIdx=0; examUpTo=0; phase="idle"; repCur=0; repTotal=10;
   playing=false; stopped=false; finalTx=""; lastFullTx="";
-  examSolo=true; examFinal=false; examBlockFrom=0;
+  examSolo=true; examFinal=false; examBlockFrom=0; examQueue=[];
   stopPauseRecog();
   if (window._wTimer) clearInterval(window._wTimer);
   G("card-listen").classList.add("hidden");
@@ -8397,6 +8468,9 @@ function adminSaveProgress(kid, suraIdx, verseNum) {
     repCur: 0,
     repTotal: 10,
     examSolo: true,
+    examFinal: false,
+    examBlockFrom: 0,
+    examQueue: [],
     examUpTo: 0,
     curSuraIdx: suraIdx,
     updatedAt: Date.now()
