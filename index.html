@@ -6569,30 +6569,46 @@ function norm(s) {
     .replace(/\s+/g," ").trim().toLowerCase();
 }
 
-// Distance d'édition (Levenshtein) <= 1 : tolère 1 lettre ajoutée, manquante
-// ou substituée, à n'importe quelle position dans le mot (pas seulement au début).
-function levenshtein1(a, b) {
-  if (a === b) return true;
+// Distance d'édition (Levenshtein) générique, plafonnée à maxDist :
+// dès qu'on dépasse maxDist on arrête le calcul (perf), on renvoie
+// maxDist+1 comme "trop loin".
+function editDistance(a, b, maxDist) {
   const la = a.length, lb = b.length;
-  if (Math.abs(la - lb) > 1) return false;
-  let i = 0, j = 0, diff = 0;
-  while (i < la && j < lb) {
-    if (a[i] === b[j]) { i++; j++; continue; }
-    diff++;
-    if (diff > 1) return false;
-    if (la === lb) { i++; j++; }
-    else if (la > lb) { i++; }
-    else { j++; }
+  if (Math.abs(la - lb) > maxDist) return maxDist + 1;
+  let prev = new Array(lb + 1);
+  let curr = new Array(lb + 1);
+  for (let j = 0; j <= lb; j++) prev[j] = j;
+  for (let i = 1; i <= la; i++) {
+    curr[0] = i;
+    let rowMin = curr[0];
+    for (let j = 1; j <= lb; j++) {
+      const cost = a[i-1] === b[j-1] ? 0 : 1;
+      curr[j] = Math.min(prev[j] + 1, curr[j-1] + 1, prev[j-1] + cost);
+      if (curr[j] < rowMin) rowMin = curr[j];
+    }
+    if (rowMin > maxDist) return maxDist + 1; // coupe court
+    [prev, curr] = [curr, prev];
   }
-  diff += (la - i) + (lb - j);
-  return diff <= 1;
+  return prev[lb];
+}
+
+// Tolérance en nombre de lettres, mise à l'échelle de la longueur du mot :
+// mots courts (voyelles/particules) → 1 lettre ; mots moyens → 2 ; longs → 3.
+// Ajustez ces seuils si besoin.
+function toleranceFor(len) {
+  if (len <= 3) return 1;
+  if (len <= 6) return 2;
+  return 3;
 }
 
 // Deux mots normalisés sont considérés "identiques" avec une tolérance
-// d'une lettre (ajout/suppression/substitution) pour absorber les fautes
-// de reconnaissance vocale.
+// proportionnelle à la longueur, pour absorber les fautes de
+// reconnaissance vocale sur les mots longs.
 function wordsMatch(nw, hw) {
-  return hw === nw || levenshtein1(nw, hw);
+  if (hw === nw) return true;
+  const maxLen = Math.max(nw.length, hw.length);
+  const tol = toleranceFor(maxLen);
+  return editDistance(nw, hw, tol) <= tol;
 }
 
 // ══════════════════════════════════════════════
