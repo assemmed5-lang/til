@@ -6357,6 +6357,12 @@ audio { position:fixed; bottom:-100px; left:-100px; width:1px; height:1px; }
   text-stroke: 0.6px var(--green-mid);
   font-weight: 900;
 }
+.sura-list-item.current {
+  color: #22d3ee;
+  -webkit-text-stroke: 0.6px #22d3ee;
+  text-stroke: 0.6px #22d3ee;
+  font-weight: 900;
+}
 </style>
 </head>
 <body>
@@ -6723,7 +6729,46 @@ let playing=false, stopped=false, repCur=0, repTotal=10, recog=null, finalTx="",
 /* ── Système de blocs progressifs (fenêtre glissante de consolidation) ── */
 const BLOCK_SIZE = 5;          // nb de versets par bloc
 let examBlockFrom = 0;         // verset de départ de l'examen de consolidation en cours
-let examFinal = false;         // true = examen final (sourate entière)
+let examFinal = false;         // true = examen de révision finale (par blocs de 10 versets)
+
+/* ── Révision finale : au lieu d'UN SEUL examen sur la sourate entière,
+   on découpe la sourate en blocs consécutifs de 10 versets (dernier bloc
+   plus petit si le total n'est pas un multiple de 10) et on les fait passer
+   un par un dans l'ordre. Échec sur un bloc → rattrapage (réécoute puis
+   ré-examen du MÊME bloc). Réussite → passage au bloc suivant. ── */
+let finalReviewQueue = [];     // [{from, to}, ...] blocs de 10 versets couvrant toute la sourate
+let finalReviewIdx = 0;        // index du bloc de révision finale en cours
+
+function buildFinalReviewQueue() {
+  const q = [];
+  for (let start = 0; start < verses.length; start += 10) {
+    const end = Math.min(start + 9, verses.length - 1);
+    q.push({ from: start, to: end });
+  }
+  return q;
+}
+
+function runNextFinalReviewChunk() {
+  if (finalReviewIdx >= finalReviewQueue.length) {
+    // Tous les blocs de 10 versets ont été validés → sourate acquise.
+    finalReviewQueue = []; finalReviewIdx = 0;
+    showDone();
+    return;
+  }
+  const chunk = finalReviewQueue[finalReviewIdx];
+  examSolo = false;
+  examFinal = true;
+  examBlockFrom = chunk.from;
+  curVerseIdx = chunk.to;
+  saveState();
+  playGroupOnce(() => { beginExamPhase(); }, chunk.from);
+}
+
+function startFinalReview() {
+  finalReviewQueue = buildFinalReviewQueue();
+  finalReviewIdx = 0;
+  runNextFinalReviewChunk();
+}
 
 function blockStartOf(vIdx) { return Math.floor(vIdx / BLOCK_SIZE) * BLOCK_SIZE; }
 function isLastOfBlock(vIdx) {
@@ -6802,17 +6847,16 @@ function onExamPassed() {
     return;
   }
 
-  if (examFinal) {
-    // L'examen final (sourate entière) vient d'être réussi → sourate acquise.
-    examFinal = false;
-    showDone();
+  if (finalReviewQueue.length) {
+    // On vient de réussir un bloc de la révision finale (paquets de 10 versets).
+    finalReviewIdx++;
+    runNextFinalReviewChunk();
     return;
   }
 
   if (curVerseIdx >= verses.length - 1) {
-    // Dernier verset de la sourate : lancer l'examen final (sourate complète).
-    examQueue = [{ from: 0, to: curVerseIdx, kind: "final" }];
-    startNextExamInQueue();
+    // Dernier verset appris : lancer la révision finale par blocs de 10 versets.
+    startFinalReview();
     return;
   }
 
@@ -6854,12 +6898,16 @@ function buildSuraListFlash() {
     });
   } catch(e) {}
   grid.innerHTML = "";
+  const curSuraNom = BANQUE_SOURATES[curSuraIdx] ? BANQUE_SOURATES[curSuraIdx].nom : null;
   const total = LISTE_SOURATES_AMMA.length;
   const cols = 4;
   const remainder = total % cols; // nb d'items sur la dernière ligne
   LISTE_SOURATES_AMMA.forEach((nom, i) => {
     const d = document.createElement("div");
-    d.className = "sura-list-item" + (acquiredNames[nom] ? " acquired" : "");
+    let cls = "sura-list-item";
+    if (nom === curSuraNom) cls += " current";
+    else if (acquiredNames[nom]) cls += " acquired";
+    d.className = cls;
     d.textContent = nom;
     // si c'est sur la dernière ligne incomplète, l'étendre/centrer
     if (remainder > 0 && i >= total - remainder) {
@@ -6909,6 +6957,8 @@ function saveState() {
     examFinal: examFinal || false,
     examBlockFrom: examBlockFrom || 0,
     examQueue: examQueue || [],
+    finalReviewQueue: finalReviewQueue || [],
+    finalReviewIdx: finalReviewIdx || 0,
     examUpTo,
     curSuraIdx,
     updatedAt: Date.now()
@@ -6929,6 +6979,8 @@ function applyStateObj(s) {
   examFinal     = s.examFinal || false;
   examBlockFrom = s.examBlockFrom || 0;
   examQueue     = Array.isArray(s.examQueue) ? s.examQueue : [];
+  finalReviewQueue = Array.isArray(s.finalReviewQueue) ? s.finalReviewQueue : [];
+  finalReviewIdx   = s.finalReviewIdx || 0;
   examUpTo      = s.examUpTo || 0;
   if (typeof s.curSuraIdx === "number" && s.curSuraIdx >= 0 && s.curSuraIdx < BANQUE_SOURATES.length) {
     if (s.curSuraIdx !== curSuraIdx) {
@@ -7030,14 +7082,14 @@ function startSession() {
       window._recogActive = false;
       if (recog) { try { recog.stop(); } catch(e) {} recog = null; }
       const allIndices = [];
-      const from2 = examSolo ? curVerseIdx : (examFinal ? 0 : examBlockFrom);
+      const from2 = examSolo ? curVerseIdx : examBlockFrom;
       for (let i = from2; i <= curVerseIdx; i++) allIndices.push(i);
       beginRetryListenPhase(allIndices);
     }
-    else { curVerseIdx=0; examUpTo=0; phase="idle"; retryMissing=[]; repCur=0; repTotal=10; examSolo=true; examFinal=false; examBlockFrom=0; examQueue=[]; beginListenPhase(); }
+    else { curVerseIdx=0; examUpTo=0; phase="idle"; retryMissing=[]; repCur=0; repTotal=10; examSolo=true; examFinal=false; examBlockFrom=0; examQueue=[]; finalReviewQueue=[]; finalReviewIdx=0; beginListenPhase(); }
   } else {
     curVerseIdx=0; examUpTo=0; phase="idle"; retryMissing=[]; repCur=0; repTotal=10;
-    examSolo=true; examFinal=false; examBlockFrom=0; examQueue=[];
+    examSolo=true; examFinal=false; examBlockFrom=0; examQueue=[]; finalReviewQueue=[]; finalReviewIdx=0;
     beginListenPhase();
   }
 }
@@ -7147,13 +7199,13 @@ function beginExamPhase() {
   updateProgressTrack();
   finalTx = "";
   lastFullTx = "";
-  const from = examSolo ? curVerseIdx : (examFinal ? 0 : examBlockFrom);
+  const from = examSolo ? curVerseIdx : examBlockFrom;
   const to   = curVerseIdx;
   const range = verses.slice(from, to + 1);
   const label = examSolo
     ? "امتحان: الآية " + (curVerseIdx + 1) + " منفردة"
     : (examFinal
-        ? "امتحان نهائي: السورة كاملة"
+        ? "امتحان نهائي: الآيات " + (from + 1) + " إلى " + (curVerseIdx + 1)
         : "امتحان تثبيت: الآيات " + (from + 1) + " إلى " + (curVerseIdx + 1));
   G("phase-label-recite").textContent = label;
   G("exam-ayahs-text").textContent = range.join("\n");
@@ -7706,7 +7758,7 @@ function showDone() {
       chargerSourate(curSuraIdx);
       curVerseIdx=0; examUpTo=0; phase="idle"; repCur=0; repTotal=10;
       playing=false; stopped=false; finalTx=""; lastFullTx=""; examSolo=true;
-      examFinal=false; examBlockFrom=0; examQueue=[];
+      examFinal=false; examBlockFrom=0; examQueue=[]; finalReviewQueue=[]; finalReviewIdx=0;
       retryMissing=[];
       G("card-result").classList.add("hidden");
       const p = document.querySelector("audio");
@@ -8193,7 +8245,7 @@ function evaluate() {
   }
   // ── Original evaluate logic ──
   const grid = G("word-grid"); grid.innerHTML = "";
-  const from = examSolo ? curVerseIdx : (examFinal ? 0 : examBlockFrom);
+  const from = examSolo ? curVerseIdx : examBlockFrom;
   const to   = curVerseIdx;
   const allWords = [];
   const verseResults = [];
@@ -8256,7 +8308,7 @@ function evaluate() {
   // individuel dépasse le seuil : un léger accroc de reconnaissance vocale
   // sur un seul mot d'un bloc de 10 versets ne doit pas faire échouer tout
   // le bloc alors que la récitation globale était correcte.
-  const PASS_THRESHOLD = examSolo ? 70 : 50;
+  const PASS_THRESHOLD = (examSolo || examFinal) ? 70 : 50;
   const allPassed = totalWordsCount > 0 && score >= PASS_THRESHOLD;
 
   if (allPassed) {
@@ -8268,7 +8320,7 @@ function evaluate() {
     setTimeout(() => {
       setWord("—");
       const allIndices = [];
-      const from2 = examSolo ? curVerseIdx : (examFinal ? 0 : examBlockFrom);
+      const from2 = examSolo ? curVerseIdx : examBlockFrom;
       for (let i = from2; i <= curVerseIdx; i++) allIndices.push(i);
       beginRetryListenPhase(allIndices);
     }, 3500);
@@ -8299,7 +8351,7 @@ G("btn-restart").addEventListener("click", () => {
   localStorage.removeItem(kidKey("state"));
   curVerseIdx=0; examUpTo=0; phase="idle"; repCur=0; repTotal=10;
   playing=false; stopped=false; finalTx=""; lastFullTx="";
-  examSolo=true; examFinal=false; examBlockFrom=0; examQueue=[];
+  examSolo=true; examFinal=false; examBlockFrom=0; examQueue=[]; finalReviewQueue=[]; finalReviewIdx=0;
   stopPauseRecog();
   if (window._wTimer) clearInterval(window._wTimer);
   G("card-listen").classList.add("hidden");
