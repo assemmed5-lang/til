@@ -11926,13 +11926,17 @@ audio { position:fixed; bottom:-100px; left:-100px; width:1px; height:1px; }
 }
 #sura-list-flash.show { opacity: 1; }
 #sura-list-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  display: flex;
+  flex-wrap: wrap;
   align-content: space-evenly;
   justify-content: center;
   height: 100%;
   width: 100%; max-width: 600px;
   margin: 0 auto;
+}
+.sura-list-item {
+  flex: 0 0 22%;
+  min-width: 0;
 }
 .sura-list-item {
   color: #c8b87e;
@@ -12493,42 +12497,15 @@ function buildSuraListFlash() {
     });
   } catch(e) {}
   grid.innerHTML = "";
-  const total = LISTE_SOURATES_AMMA.length;
-  const cols = 4;
-  const remainder = total % cols;
-  const fullRowsCount = total - remainder;
-
-  function makeItem(nom) {
+  LISTE_SOURATES_AMMA.forEach(nom => {
     const d = document.createElement("div");
     d.className = "sura-list-item" + (acquiredNames[nom] ? " acquired" : "");
     d.textContent = nom;
-    return d;
-  }
-
-  // Lignes complètes de 4
-  LISTE_SOURATES_AMMA.slice(0, fullRowsCount).forEach(nom => {
-    grid.appendChild(makeItem(nom));
+    grid.appendChild(d);
   });
-
-  // Dernière ligne incomplète : tous les éléments restants groupés
-  // ensemble et centrés sur une seule ligne (quel que soit leur nombre).
-  if (remainder > 0) {
-    const wrap = document.createElement("div");
-    wrap.style.gridColumn = "1 / -1";
-    wrap.style.display = "flex";
-    wrap.style.justifyContent = "center";
-    wrap.style.gap = "20px";
-    LISTE_SOURATES_AMMA.slice(fullRowsCount).forEach(nom => {
-      wrap.appendChild(makeItem(nom));
-    });
-    grid.appendChild(wrap);
-  }
-
   autoFitSuraGrid();
 }
 
-// Ajuste dynamiquement la taille du texte selon le nombre de lignes,
-// pour que la liste reste harmonieuse même si on ajoute des sourates.
 function autoFitSuraGrid() {
   const grid = G("sura-list-grid");
   if (!grid) return;
