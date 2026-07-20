@@ -12476,6 +12476,8 @@ const LISTE_SOURATES_AMMA = [
   "البينة", "القدر", "العلق", "التين",
   "الشرح", "الضحى", "الليل", "الشمس",
   "البلد", "الفجر", "الغاشية", "الأعلى", "الطارق",
+  "البروج", "الانشقاق", "المطففين", "الانفطار", "التكوير",
+  "عبس", "النازعات", "النبأ", 
 ];
 
 /* ─── Écran flash : liste des sourates, acquises en vert/gras ─── */
@@ -12491,22 +12493,56 @@ function buildSuraListFlash() {
     });
   } catch(e) {}
   grid.innerHTML = "";
-  const curSuraNom = BANQUE_SOURATES[curSuraIdx] ? BANQUE_SOURATES[curSuraIdx].nom : null;
   const total = LISTE_SOURATES_AMMA.length;
   const cols = 4;
-  const remainder = total % cols; // nb d'items sur la dernière ligne
-  LISTE_SOURATES_AMMA.forEach((nom, i) => {
+  const remainder = total % cols;
+  const fullRowsCount = total - remainder;
+
+  function makeItem(nom) {
     const d = document.createElement("div");
-    let cls = "sura-list-item";
-    if (nom === curSuraNom) cls += " current";
-    else if (acquiredNames[nom]) cls += " acquired";
-    d.className = cls;
+    d.className = "sura-list-item" + (acquiredNames[nom] ? " acquired" : "");
     d.textContent = nom;
-    // si c'est sur la dernière ligne incomplète, l'étendre/centrer
-    if (remainder > 0 && i >= total - remainder) {
-      d.style.gridColumn = "1 / -1";
-    }
-    grid.appendChild(d);
+    return d;
+  }
+
+  // Lignes complètes de 4
+  LISTE_SOURATES_AMMA.slice(0, fullRowsCount).forEach(nom => {
+    grid.appendChild(makeItem(nom));
+  });
+
+  // Dernière ligne incomplète : tous les éléments restants groupés
+  // ensemble et centrés sur une seule ligne (quel que soit leur nombre).
+  if (remainder > 0) {
+    const wrap = document.createElement("div");
+    wrap.style.gridColumn = "1 / -1";
+    wrap.style.display = "flex";
+    wrap.style.justifyContent = "center";
+    wrap.style.gap = "20px";
+    LISTE_SOURATES_AMMA.slice(fullRowsCount).forEach(nom => {
+      wrap.appendChild(makeItem(nom));
+    });
+    grid.appendChild(wrap);
+  }
+
+  autoFitSuraGrid();
+}
+
+// Ajuste dynamiquement la taille du texte selon le nombre de lignes,
+// pour que la liste reste harmonieuse même si on ajoute des sourates.
+function autoFitSuraGrid() {
+  const grid = G("sura-list-grid");
+  if (!grid) return;
+  const cols = 4;
+  const itemCount = grid.querySelectorAll(".sura-list-item").length;
+  const rows = Math.ceil(itemCount / cols);
+  const availH = grid.clientHeight;
+  const availW = grid.clientWidth;
+  if (availH <= 0 || rows <= 0) return;
+  const maxByHeight = (availH / rows) * 0.72;
+  const maxByWidth  = (availW / cols) * 0.42;
+  const size = Math.max(14, Math.min(maxByHeight, maxByWidth, 60));
+  grid.querySelectorAll(".sura-list-item").forEach(el => {
+    el.style.fontSize = size + "px";
   });
 }
 
