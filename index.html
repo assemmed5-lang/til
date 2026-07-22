@@ -12145,6 +12145,38 @@ audio { position:fixed; bottom:-100px; left:-100px; width:1px; height:1px; }
 <script>
 const G = id => document.getElementById(id);
 
+/* ══ Capteur d'erreurs visible (diagnostic) ══
+   Affiche toute erreur JS non interceptée directement à l'écran, sous
+   forme d'un petit bandeau rouge en bas, au lieu de disparaître
+   silencieusement dans la console. Nécessaire pour diagnostiquer les
+   blocages signalés ("l'app se bloque, il faut la fermer et la
+   rouvrir") sans accès à la console de débogage sur le téléphone.
+   Peut être retiré une fois la cause du blocage identifiée et corrigée. */
+(function setupErrorCatcher() {
+  let box = null;
+  function showErr(msg) {
+    if (!box) {
+      box = document.createElement("div");
+      box.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:99999;" +
+        "background:#7a1414;color:#fff;font-family:monospace;font-size:12px;" +
+        "padding:10px;max-height:40vh;overflow-y:auto;white-space:pre-wrap;" +
+        "direction:ltr;text-align:left;border-top:3px solid #ff5555;";
+      document.body.appendChild(box);
+    }
+    const line = document.createElement("div");
+    line.style.cssText = "margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid rgba(255,255,255,0.2);";
+    line.textContent = new Date().toLocaleTimeString() + " — " + msg;
+    box.appendChild(line);
+    box.scrollTop = box.scrollHeight;
+  }
+  window.addEventListener("error", (e) => {
+    showErr((e.message || "Erreur inconnue") + " @ " + (e.filename || "?") + ":" + (e.lineno || "?"));
+  });
+  window.addEventListener("unhandledrejection", (e) => {
+    showErr("Promise rejetée: " + (e.reason && e.reason.message ? e.reason.message : e.reason));
+  });
+})();
+
 /* ── Auto-fit texte : agrandit/réduit la police pour remplir le cadre #screen
    au maximum, dans les deux dimensions (largeur ET hauteur), sans déborder.
    Remplace l'ancien calcul statique par nombre de caractères en vw. ── */
@@ -13551,10 +13583,18 @@ G("btn-rec-stop").addEventListener("click", () => {
    souris. On ignore Entrée si le focus est dans un champ de saisie
    (ex: les champs "من الآية"/"إلى الآية" du choix de plage de révision),
    pour ne pas interférer avec leur usage normal. */
+let _lastEnterActionTs = 0;
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Enter") return;
   const activeTag = (document.activeElement && document.activeElement.tagName || "").toLowerCase();
   if (activeTag === "input" || activeTag === "textarea" || activeTag === "select") return;
+
+  // Anti-rebond : si un bouton a le focus, Entrée peut déclencher à la
+  // fois le clic natif du navigateur ET notre btn.click() manuel — d'où
+  // un double-déclenchement (double répétition). On bloque toute
+  // nouvelle action dans les 500ms suivant la précédente.
+  const now = Date.now();
+  if (now - _lastEnterActionTs < 500) { e.preventDefault(); return; }
 
   const candidates = [
     G("btn-listen-start"),
@@ -13564,6 +13604,13 @@ document.addEventListener("keydown", (e) => {
   for (const btn of candidates) {
     if (btn && !btn.classList.contains("hidden") && !btn.disabled) {
       e.preventDefault();
+      _lastEnterActionTs = now;
+      // Retire le focus du bouton avant de cliquer nous-mêmes, pour
+      // éviter que le navigateur ne déclenche AUSSI son activation
+      // native sur ce même appui de touche.
+      if (document.activeElement && document.activeElement !== document.body && document.activeElement.blur) {
+        document.activeElement.blur();
+      }
       btn.click();
       return;
     }
