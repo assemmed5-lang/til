@@ -11851,6 +11851,45 @@ audio { position:fixed; bottom:-100px; left:-100px; width:1px; height:1px; }
 }
 .kid-btn:active { background: var(--green-dark); }
 
+/* ─── Écran de choix : apprentissage / révision ─── */
+#mode-select {
+  position: fixed; inset: 0; background: var(--bg);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 22px; z-index: 9999; padding: 24px; text-align: center;
+}
+#mode-select h2 { color: #f5e6c0; font-size: 6vw; margin-bottom: 6px; }
+.mode-btn {
+  width: 85%; max-width: 340px; padding: 22px;
+  font-size: 7vw; font-weight: 800; border: none; border-radius: 18px;
+  color: #fff; cursor: pointer; font-family: inherit;
+}
+.mode-btn-learn  { background: var(--green-mid); }
+.mode-btn-learn:active  { background: var(--green-dark); }
+.mode-btn-review { background: var(--gold-mid); }
+.mode-btn-review:active { background: var(--gold-dark); }
+.mode-btn-back { background: rgba(255,255,255,0.1); color: #ccc; font-size: 5vw; padding: 14px; }
+
+/* ─── Écran : liste scrollable des sourates pour révision ciblée ─── */
+#revision-picker {
+  position: fixed; inset: 0; background: var(--bg);
+  display: flex; flex-direction: column; align-items: center;
+  gap: 14px; z-index: 9999; padding: 20px 16px; text-align: center;
+}
+#revision-picker h2 { color: #f5e6c0; font-size: 5.5vw; margin: 6px 0; }
+#revision-picker-list {
+  width: 100%; max-width: 460px; flex: 1; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 8px; padding-bottom: 8px;
+}
+.revision-item {
+  width: 100%; padding: 16px; border: none; border-radius: 12px;
+  background: rgba(255,255,255,0.06); color: #c8b87e;
+  font-size: 5.4vw; font-weight: 700; font-family: inherit; cursor: pointer;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.revision-item:active { background: rgba(255,255,255,0.14); }
+.revision-item.acquired { color: var(--green-mid); }
+.revision-item .rev-badge { font-size: 4vw; }
+
 /* ─── Panneau admin (⚙ modification manuelle de la progression) ─── */
 #btn-admin-gear {
   position: fixed; top: 16px; left: 16px; z-index: 10000;
@@ -11971,6 +12010,16 @@ audio { position:fixed; bottom:-100px; left:-100px; width:1px; height:1px; }
   <button class="kid-btn" data-kid="adam">آدم</button>
   <button class="kid-btn" data-kid="yahia">يحيى</button>
   <button id="btn-admin-gear">⚙</button>
+</div>
+<div id="mode-select" style="display:none">
+  <h2>ماذا تريد أن تفعل اليوم؟</h2>
+  <button class="mode-btn mode-btn-learn" id="btn-mode-learn">📚 حفظ جديد</button>
+  <button class="mode-btn mode-btn-review" id="btn-mode-review">🔁 مراجعة سورة</button>
+</div>
+<div id="revision-picker" style="display:none">
+  <h2>اختر السورة للمراجعة</h2>
+  <div id="revision-picker-list"></div>
+  <button class="mode-btn mode-btn-back" id="btn-revision-back">⬅ رجوع</button>
 </div>
 <div id="review-screen" style="display:none">
   <h2>وقت المراجعة! 📖</h2>
@@ -12106,7 +12155,13 @@ window.addEventListener("resize", () => {
   }, 200);
 });
 
-/* Affiche le texte complet du/des versets avec mots ratés en rouge */
+/* Affiche le texte complet du/des versets avec mots ratés en rouge.
+   IMPORTANT : un seul alignement global est calculé sur l'ENSEMBLE des
+   versets du groupe (comme dans evaluate()), puis découpé verset par
+   verset pour la coloration. Avant, chaque verset était réaligné
+   indépendamment avec la transcription complète à chaque fois, ce qui
+   pouvait afficher un résultat différent de celui réellement utilisé
+   pour la note (score) — désynchronisation corrigée ici. */
 function showVerseWithMisses(verseIndices, heardNorm) {
   const el = G("current-word");
   el.innerHTML = "";
@@ -12114,16 +12169,25 @@ function showVerseWithMisses(verseIndices, heardNorm) {
   el.style.lineHeight = "1.35";
 
   const heardWordsArr = heardNorm ? heardNorm.split(/\s+/).filter(Boolean) : [];
+  const verseList = (revMode && revVerses.length) ? revVerses : verses;
 
+  // Un seul alignement sur la concaténation de tous les versets du groupe.
+  const allExpectedWords = [];
+  verseIndices.forEach(vi => {
+    const words = verseList[vi] ? verseList[vi].split(/\s+/).filter(Boolean) : [];
+    words.forEach(w => allExpectedWords.push(w));
+  });
+  const globalAlignment = (heardWordsArr.length && allExpectedWords.length)
+    ? alignWords(allExpectedWords, heardWordsArr)
+    : allExpectedWords.map(() => false);
+
+  let gi = 0;
   verseIndices.forEach((vi, idx) => {
-    // Chercher dans verses[] OU revVerses[] selon le mode actif
-    const verseList = (revMode && revVerses.length) ? revVerses : verses;
     if (!verseList[vi]) return;
     const words = verseList[vi].split(/\s+/).filter(Boolean);
-    const alignment = heardWordsArr.length ? alignWords(words, heardWordsArr) : words.map(() => false);
     if (idx > 0) { el.appendChild(document.createElement("br")); }
     words.forEach((w, i) => {
-      const ok = alignment[i];
+      const ok = globalAlignment[gi]; gi++;
       const span = document.createElement("span");
       span.textContent = (i > 0 ? " " : "") + w;
       span.style.color = ok ? "#f5e6c0" : "#E24B4A";
@@ -12218,46 +12282,75 @@ function wordsMatch(nw, hw) {
 }
 
 // ══════════════════════════════════════════════
-// alignWords : alignement GLOUTON gauche-à-droite entre les mots ATTENDUS
-// (verset) et les mots ENTENDUS (transcription).
+// alignWords : alignement OPTIMAL entre les mots ATTENDUS (verset/bloc)
+// et les mots ENTENDUS (transcription), par programmation dynamique
+// (façon "plus longue sous-séquence commune" tolérante aux fautes).
 //
-// Principe : on parcourt les mots attendus DANS L'ORDRE (1, 2, 3...). Pour
-// chaque mot attendu, on cherche le PREMIER mot entendu disponible (non
-// encore utilisé) situé strictement APRÈS la position du dernier mot
-// entendu déjà validé. Si trouvé → validé et "consommé" (ne peut plus
-// servir à un autre mot attendu). Si non trouvé → raté.
+// ── Pourquoi pas un algorithme glouton (ancienne version) ──
+// L'ancienne version parcourait les mots attendus dans l'ordre et prenait
+// le PREMIER mot entendu compatible trouvé. Problème : sur un bloc/examen
+// groupé de plusieurs versets (donc une longue transcription), un seul
+// petit accroc de reconnaissance vocale en début de bloc pouvait faire
+// "consommer" par erreur un mot entendu trop tôt, décalant irrémédiablement
+// tout le reste de l'alignement — des mots parfaitement récités ensuite se
+// retrouvaient marqués faux en cascade, même si chaque mot pris isolément
+// respectait la tolérance de wordsMatch(). C'était visible surtout sur les
+// examens groupés (bloc/consolidation/final), jamais en solo (un seul
+// verset = pas assez de mots pour qu'une cascade se déclenche).
 //
-// Pourquoi cet algorithme et pas un simple "le mot existe dans heard" :
-// - DUPLICATAS : si le verset répète un mot (ex: كَيْفَ deux fois) et que
-//   l'utilisateur ne le dit qu'une fois, un seul des deux est validé —
-//   jamais les deux à partir d'une seule occurrence entendue.
-// - ORDRE : si l'utilisateur dit "رب العالمين" avant "الحمد لله" (alors que
-//   le verset attend l'inverse), رب/العالمين ne sont PAS validés tant que
-//   leurs prédécesseurs (الحمد/لله) n'ont pas été dits avant eux dans
-//   l'enregistrement. En revanche, si l'utilisateur a commencé à parler
-//   avant l'activation du micro et que رب/العالمين sont captés en premier,
-//   puis qu'il dit ensuite الحمد/لله dans le bon ordre relatif entre eux,
-//   ces deux derniers SONT validés (ils respectent l'ordre l'un par rapport
-//   à l'autre) — seuls رب/العالمين restent non validés et donc à refaire.
+// ── Nouvelle version ──
+// On calcule, par programmation dynamique, la MEILLEURE combinaison
+// possible sur l'ENSEMBLE de la séquence (celle qui maximise le nombre
+// total de mots attendus validés), au lieu de s'arrêter au premier
+// appariement trouvé. Mêmes garanties qu'avant :
+// - DUPLICATAS : un mot entendu ne peut valider qu'un seul mot attendu.
+// - ORDRE : les appariements respectent l'ordre relatif des deux côtés.
+// Mais sans effet de cascade : un mot mal reconnu au milieu du bloc
+// n'empêche plus les mots suivants (bien récités) d'être validés.
 //
 // Retourne un tableau de booléens, un par mot attendu (true = validé).
 // ══════════════════════════════════════════════
 function alignWords(expectedWords, heardWordsArr) {
   const n = expectedWords.length;
+  const m = heardWordsArr.length;
+  const ok = new Array(n).fill(false);
+  if (!n || !m) return ok;
+
   const nExp = expectedWords.map(norm);
   const nHeard = heardWordsArr.map(norm);
-  const used = new Array(nHeard.length).fill(false);
-  const ok = new Array(n).fill(false);
-  let lastUsedPos = -1;
+
+  // match[i][j] mis en cache pour éviter de rappeler wordsMatch() deux fois
+  // (une fois pour remplir la table, une fois pour le backtrack).
+  const match = new Array(n);
   for (let i = 0; i < n; i++) {
-    let found = -1;
-    for (let j = lastUsedPos + 1; j < nHeard.length; j++) {
-      if (!used[j] && wordsMatch(nExp[i], nHeard[j])) { found = j; break; }
+    const row = new Uint8Array(m);
+    for (let j = 0; j < m; j++) row[j] = wordsMatch(nExp[i], nHeard[j]) ? 1 : 0;
+    match[i] = row;
+  }
+
+  // dp[i][j] = nombre maximal d'appariements possibles entre les i premiers
+  // mots attendus et les j premiers mots entendus.
+  const dp = new Array(n + 1);
+  for (let i = 0; i <= n; i++) dp[i] = new Int16Array(m + 1);
+  for (let i = 1; i <= n; i++) {
+    const row = dp[i], prevRow = dp[i - 1], mrow = match[i - 1];
+    for (let j = 1; j <= m; j++) {
+      row[j] = mrow[j - 1]
+        ? prevRow[j - 1] + 1
+        : Math.max(prevRow[j], row[j - 1]);
     }
-    if (found !== -1) {
-      ok[i] = true;
-      used[found] = true;
-      lastUsedPos = found;
+  }
+
+  // Backtrack : reconstitue QUELS mots attendus ont été appariés.
+  let i = n, j = m;
+  while (i > 0 && j > 0) {
+    if (match[i - 1][j - 1] && dp[i][j] === dp[i - 1][j - 1] + 1) {
+      ok[i - 1] = true;
+      i--; j--;
+    } else if (dp[i - 1][j] >= dp[i][j - 1]) {
+      i--;
+    } else {
+      j--;
     }
   }
   return ok;
@@ -12487,7 +12580,7 @@ const LISTE_SOURATES_AMMA = [
   "عبس", "النازعات", "النبأ", 
 ];
 
-/* ─── Écran flash : liste des sourates, acquises en vert/gras ─── */
+/* ─── Écran flash : liste des sourates, acquises en vert/gras, en cours en bleu ─── */
 function buildSuraListFlash() {
   const grid = G("sura-list-grid");
   if (!grid) return;
@@ -12499,10 +12592,14 @@ function buildSuraListFlash() {
       if (BANQUE_SOURATES[si]) acquiredNames[BANQUE_SOURATES[si].nom] = true;
     });
   } catch(e) {}
+  const currentNom = BANQUE_SOURATES[curSuraIdx] ? BANQUE_SOURATES[curSuraIdx].nom : null;
   grid.innerHTML = "";
   LISTE_SOURATES_AMMA.forEach(nom => {
     const d = document.createElement("div");
-    d.className = "sura-list-item" + (acquiredNames[nom] ? " acquired" : "");
+    let cls = "sura-list-item";
+    if (nom === currentNom) cls += " current";
+    else if (acquiredNames[nom]) cls += " acquired";
+    d.className = cls;
     d.textContent = nom;
     grid.appendChild(d);
   });
@@ -13084,8 +13181,12 @@ function tick() {
     G("transcript").style.display = "none";
 
     if ((phase === "listen" || phase === "retry_listen") && SRBrowser) {
-      const expVi = phase === "retry_listen" ? (retryMissing[0] ?? curVerseIdx) : curVerseIdx;
-      const expW = verses[expVi] ? verses[expVi].split(/\s+/).filter(Boolean).map(norm) : [];
+      // BUG CORRIGÉ : auparavant on ne prenait que retryMissing[0] (le premier
+      // verset du groupe), donc dès qu'un groupe de plusieurs versets était en
+      // réécoute (retry_listen), le 2e verset et les suivants n'étaient jamais
+      // affichés — ni même considérés — par cette vérification de pause.
+      // Désormais on garde la liste COMPLÈTE des versets du groupe.
+      const expViList = (phase === "retry_listen" && retryMissing.length) ? retryMissing : [curVerseIdx];
       let heard = ""; let gotSpeech = false;
       // accumFinal persiste across les redémarrages du micro (silences) —
       // c'est l'équivalent local de finalTx : ne JAMAIS la réinitialiser
@@ -13105,7 +13206,7 @@ function tick() {
         const hn = norm(displayedTxt);
         document.body.style.background = "var(--bg)";
         // Toujours afficher le verset complet avec coloration (blanc=juste, rouge=raté)
-        showVerseWithMisses([expVi], hn);
+        showVerseWithMisses(expViList, hn);
         return true;
       }
 
@@ -13879,10 +13980,254 @@ function revEvaluateAll() {
   }
 }
 
+/* ═══════════════════════════════════════════════════════
+   RÉVISION CIBLÉE PAR BLOCS CHEVAUCHANTS (nouveau système)
+   ═══════════════════════════════════════════════════════
+   Remplace l'ancien déclenchement automatique/bloquant. L'enfant
+   choisit lui-même une sourate à réviser dans une liste scrollable.
+
+   Deux couches de blocs, chacune couvrant toute la sourate :
+     - Couche 1 : blocs de 5 versets
+     - Couche 2 : blocs de 10 versets
+   Dans chaque couche, le dernier verset d'un bloc = le premier verset
+   du bloc suivant (chevauchement d'un verset), pour ne jamais couper
+   la continuité de la récitation entre deux blocs.
+
+   Pour chaque bloc : écoute (comme les autres examens de l'app) puis
+   récitation notée. En cas d'échec : réécoute + nouvel essai, répété
+   sans limite (comme en apprentissage) jusqu'à réussite.
+*/
+
+let revTargetSuraIdx = -1;
+let revLayerSize = 5;
+let revBlockIdx  = 0;
+let revBlocks    = [];
+
+/* Découpe [0, totalVerses-1] en blocs de taille `size`, avec
+   chevauchement d'un verset entre blocs consécutifs. Si la sourate
+   est plus courte que `size`, un seul bloc couvre toute la sourate. */
+function computeOverlapBlocks(totalVerses, size) {
+  if (totalVerses <= 0) return [];
+  if (totalVerses <= size) return [[0, totalVerses - 1]];
+  const blocks = [];
+  let start = 0;
+  while (true) {
+    const end = Math.min(start + size - 1, totalVerses - 1);
+    blocks.push([start, end]);
+    if (end >= totalVerses - 1) break;
+    start = end; // chevauchement : dernier verset du bloc = premier du suivant
+  }
+  return blocks;
+}
+
+function startTargetedRevision(suraIdx) {
+  revTargetSuraIdx = suraIdx;
+  const sura = BANQUE_SOURATES[suraIdx];
+  revAudioUrl  = sura.mp3;
+  revVerseCues = parseSRT(sura.srtVersets);
+  revWordCues  = parseSRT(sura.srtMots);
+  revVerses    = revVerseCues.map(c => c.text.split(/\n/).filter(l => !/-->/.test(l) && !/^\d+$/.test(l.trim())).join(" ").trim());
+
+  revMode = true;
+  window._revExamMode = null;
+
+  const p = G("audio-player");
+  p.src = revAudioUrl; p._loadedUrl = revAudioUrl; p.load();
+
+  revLayerSize = 5;
+  revBlocks = computeOverlapBlocks(revVerses.length, revLayerSize);
+  revBlockIdx = 0;
+
+  buildRevProgressTrack();
+  showRevPhaseLabel("مراجعة " + sura.nom + " — الطبقة الأولى (كتل من 5 آيات)");
+  revBlockListenThenExam();
+}
+
+function revBlockListenThenExam() {
+  if (!revBlocks.length) { finishTargetedRevision(); return; }
+  const [from, to] = revBlocks[revBlockIdx];
+  const vcFrom = revVerseCues[from], vcTo = revVerseCues[to];
+  if (!vcFrom || !vcTo) { revBlockIdx++; revAdvanceAfterBlockPass(); return; }
+
+  window._activeWindow = { start: vcFrom.start, end: vcTo.end };
+  window._activeCues   = revWordCues.filter(c => c.start >= vcFrom.start - 0.05 && c.start < vcTo.end);
+
+  showRevPhaseLabel(
+    "مراجعة " + BANQUE_SOURATES[revTargetSuraIdx].nom +
+    " — كتلة " + (revBlockIdx + 1) + "/" + revBlocks.length +
+    " (طبقة " + revLayerSize + ")"
+  );
+
+  G("phase-label").textContent = "الآيات " + (from + 1) + " إلى " + (to + 1);
+  G("ayah-full-text").textContent = revVerses.slice(from, to + 1).join("\n");
+  G("ayah-full-box").classList.remove("hidden");
+  G("rep-state").textContent = "جارٍ الاستماع...";
+  G("btn-listen-start").classList.add("hidden");
+  G("btn-listen-stop").classList.add("hidden");
+  G("card-listen").classList.remove("hidden");
+  G("card-recite").classList.add("hidden");
+  G("card-result").classList.add("hidden");
+
+  revVerses.forEach((_, i) => {
+    const d = G("pt-" + i);
+    if (d) d.className = "pt-step" + (i >= from && i <= to ? " current" : (i < from ? " done" : ""));
+  });
+
+  playing = true; stopped = false;
+  G("audio-player").playbackRate = 1.0;
+  playOnce(() => { revStartExamBlock(from, to); });
+}
+
+function revStartExamBlock(from, to) {
+  finalTx = ""; lastFullTx = "";
+  G("phase-label-recite").textContent = (from === to)
+    ? ("امتحان الآية " + (from + 1))
+    : ("امتحان الآيات " + (from + 1) + " إلى " + (to + 1));
+  G("exam-ayahs-text").textContent = revVerses.slice(from, to + 1).join("\n");
+  G("exam-ayahs-box").classList.remove("hidden");
+  G("rec-hint").textContent = "قل الآيات بصوت واضح";
+  G("btn-rec-start").classList.remove("hidden");
+  G("btn-rec-stop").classList.add("hidden");
+  G("rec-status").textContent = "اضغط الزر وابدأ في التلاوة";
+  G("transcript").style.display = "none";
+  G("mic-ring").classList.remove("on");
+  G("card-listen").classList.add("hidden");
+  G("card-recite").classList.remove("hidden");
+  G("card-result").classList.add("hidden");
+
+  window._revExamMode = "block";
+  window._revBlockRange = [from, to];
+}
+
+function revEvaluateBlock() {
+  const [from, to] = window._revBlockRange;
+  const heard = norm(finalTx);
+  const heardWordsArr = heard.split(/\s+/).filter(Boolean);
+  const allExpectedWords = [];
+  for (let vi = from; vi <= to; vi++) {
+    revVerses[vi].split(/\s+/).filter(Boolean).forEach(w => allExpectedWords.push(w));
+  }
+  const alignment = allExpectedWords.length ? alignWords(allExpectedWords, heardWordsArr) : [];
+  const failed = alignment.filter(x => !x).length;
+  const score = allExpectedWords.length ? Math.round((1 - failed / allExpectedWords.length) * 100) : 0;
+
+  G("card-recite").classList.add("hidden");
+  G("card-listen").classList.remove("hidden");
+  const idxs = []; for (let vi = from; vi <= to; vi++) idxs.push(vi);
+  showVerseWithMisses(idxs, heard);
+
+  if (score >= 50) {
+    setTimeout(() => {
+      setWord("—");
+      revBlockIdx++;
+      revAdvanceAfterBlockPass();
+    }, 2800);
+  } else {
+    // Échec : réécoute du même bloc + nouvel essai, sans limite (comme l'apprentissage)
+    setTimeout(() => {
+      setWord("—");
+      revBlockListenThenExam();
+    }, 3500);
+  }
+}
+
+function revAdvanceAfterBlockPass() {
+  if (revBlockIdx < revBlocks.length) {
+    revBlockListenThenExam();
+    return;
+  }
+  if (revLayerSize === 5) {
+    revLayerSize = 10;
+    revBlocks = computeOverlapBlocks(revVerses.length, revLayerSize);
+    revBlockIdx = 0;
+    showRevPhaseLabel("مراجعة " + BANQUE_SOURATES[revTargetSuraIdx].nom + " — الطبقة الثانية (كتل من 10 آيات)");
+    revBlockListenThenExam();
+  } else {
+    finishTargetedRevision();
+  }
+}
+
+function finishTargetedRevision() {
+  markReviewDone(revTargetSuraIdx);
+  G("card-recite").classList.add("hidden");
+  G("card-result").classList.remove("hidden");
+  const box = G("score-box"); box.className = "score-box ex";
+  G("score-num").textContent = "🌟";
+  G("score-lbl").textContent = "أحسنت! راجعت سورة " + BANQUE_SOURATES[revTargetSuraIdx].nom + " بنجاح!";
+  G("score-msg").textContent = "";
+  G("n-missing").classList.add("hidden");
+  G("n-extra").classList.add("hidden");
+  G("card-result").scrollIntoView({ behavior:"smooth", block:"start" });
+  setTimeout(() => {
+    G("card-result").classList.add("hidden");
+    revMode = false;
+    window._revExamMode = null;
+    G("review-phase-label").style.display = "none";
+    showModeSelect();
+  }, 3000);
+}
+
+/* ─── Écran de choix : apprentissage / révision ─── */
+function showModeSelect() {
+  G("card-listen").classList.add("hidden");
+  G("card-recite").classList.add("hidden");
+  G("card-result").classList.add("hidden");
+  G("mode-select").style.display = "flex";
+}
+
+G("btn-mode-learn").addEventListener("click", () => {
+  G("mode-select").style.display = "none";
+  startSession();
+});
+
+G("btn-mode-review").addEventListener("click", () => {
+  G("mode-select").style.display = "none";
+  buildRevisionPicker();
+  G("revision-picker").style.display = "flex";
+});
+
+G("btn-revision-back").addEventListener("click", () => {
+  G("revision-picker").style.display = "none";
+  showModeSelect();
+});
+
+/* Liste scrollable de TOUTES les sourates (acquises ou non) pour
+   révision ciblée. Un badge indique l'état : ✅ acquise à jour,
+   🔴 acquise et en retard de révision (info seule, non bloquant),
+   rien = pas encore apprise (peut quand même être choisie). */
+function buildRevisionPicker() {
+  const list = G("revision-picker-list");
+  if (!list) return;
+  list.innerHTML = "";
+  const acquired = loadAcquired();
+  let dueSet = {};
+  try { getDueReviews().forEach(d => { dueSet[d.suraIdx] = true; }); } catch(e) {}
+
+  BANQUE_SOURATES.forEach((s, i) => {
+    const btn = document.createElement("button");
+    btn.className = "revision-item" + (acquired[i] ? " acquired" : "");
+    const label = document.createElement("span");
+    label.textContent = s.nom;
+    const badge = document.createElement("span");
+    badge.className = "rev-badge";
+    badge.textContent = acquired[i] ? (dueSet[i] ? "🔴" : "✅") : "";
+    btn.appendChild(label);
+    btn.appendChild(badge);
+    btn.addEventListener("click", () => {
+      G("revision-picker").style.display = "none";
+      startTargetedRevision(i);
+    });
+    list.appendChild(btn);
+  });
+}
+
 window._revExamMode = null;
 // Override evaluate to intercept review mode
 function evaluate() {
   const heard = norm(finalTx);
+  if (revMode && window._revExamMode === "block") {
+    revEvaluateBlock(); return;
+  }
   if (revMode && window._revExamMode === "single") {
     revEvaluateSingle(); return;
   }
@@ -14039,7 +14384,7 @@ document.querySelectorAll(".kid-btn").forEach(btn => {
       syncFromFirebase(() => {
         loadState(); // recharge sourate/état en mémoire avec les données Firebase à jour
         setWord("—");
-        checkRevisionOrStart();
+        showModeSelect();
       });
     } catch(err) {
       setWord("⚠️");
