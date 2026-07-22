@@ -11920,6 +11920,13 @@ audio { position:fixed; bottom:-100px; left:-100px; width:1px; height:1px; }
   font-size: 5vw; font-family: inherit; text-align: center;
 }
 
+/* ─── Actions sur le carton de résultat (répéter la révision) ─── */
+#rev-result-actions {
+  display: flex; flex-direction: column; gap: 10px;
+  width: 100%; max-width: 380px; margin: 18px auto 0;
+}
+#rev-result-actions .mode-btn { padding: 16px; font-size: 5vw; }
+
 /* ─── Panneau admin (⚙ modification manuelle de la progression) ─── */
 #btn-admin-gear {
   position: fixed; top: 16px; left: 16px; z-index: 10000;
@@ -12130,6 +12137,10 @@ audio { position:fixed; bottom:-100px; left:-100px; width:1px; height:1px; }
   <div id="word-grid"></div>
   <div id="n-missing" class="hidden"></div>
   <div id="n-extra" class="hidden"></div>
+  <div id="rev-result-actions" class="hidden">
+    <button class="mode-btn mode-btn-review" id="btn-rev-repeat">🔁 أعد نفس المراجعة</button>
+    <button class="mode-btn mode-btn-back" id="btn-rev-finish">🏠 القائمة الرئيسية</button>
+  </div>
 </div>
 <script>
 const G = id => document.getElementById(id);
@@ -13588,6 +13599,7 @@ function showDone() {
   // Marquer la sourate comme apprise (pour le système de révision)
   markSuraAcquired(curSuraIdx);
   G("card-result").classList.remove("hidden");
+  if (G("rev-result-actions")) G("rev-result-actions").classList.add("hidden");
   const box = G("score-box"); box.className = "score-box ex";
   const nextIdx = curSuraIdx + 1;
   if (nextIdx < BANQUE_SOURATES.length) {
@@ -14270,18 +14282,34 @@ function finishTargetedRevision() {
   const box = G("score-box"); box.className = "score-box ex";
   G("score-num").textContent = "🌟";
   G("score-lbl").textContent = "أحسنت! راجعت سورة " + BANQUE_SOURATES[revTargetSuraIdx].nom + " بنجاح!";
-  G("score-msg").textContent = "";
+  G("score-msg").textContent = "إذا كنت تريد التثبيت أكثر، أعد نفس المراجعة";
   G("n-missing").classList.add("hidden");
   G("n-extra").classList.add("hidden");
+  // Pas de fermeture automatique : l'enfant/parent choisit de répéter la
+  // même révision (même sourate + même plage, sans repasser par les écrans
+  // de choix) ou de terminer et revenir au menu.
+  G("rev-result-actions").classList.remove("hidden");
   G("card-result").scrollIntoView({ behavior:"smooth", block:"start" });
-  setTimeout(() => {
-    G("card-result").classList.add("hidden");
-    revMode = false;
-    window._revExamMode = null;
-    G("review-phase-label").style.display = "none";
-    showModeSelect();
-  }, 3000);
 }
+
+/* Répète EXACTEMENT la même révision (même sourate, même plage de
+   versets) sans repasser par les écrans de sélection — utile quand les
+   versets révisés ne sont pas encore bien mémorisés et qu'on veut
+   recommencer tout de suite sans ressaisir les mêmes choix. */
+G("btn-rev-repeat").addEventListener("click", () => {
+  G("rev-result-actions").classList.add("hidden");
+  G("card-result").classList.add("hidden");
+  startTargetedRevision(revTargetSuraIdx, revRangeFrom + 1, revRangeTo + 1);
+});
+
+G("btn-rev-finish").addEventListener("click", () => {
+  G("rev-result-actions").classList.add("hidden");
+  G("card-result").classList.add("hidden");
+  revMode = false;
+  window._revExamMode = null;
+  G("review-phase-label").style.display = "none";
+  showModeSelect();
+});
 
 /* ─── Écran de choix : apprentissage / révision ─── */
 function showModeSelect() {
