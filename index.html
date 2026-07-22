@@ -13020,6 +13020,17 @@ function beginExamPhase() {
   G("card-recite").scrollIntoView({ behavior:"smooth", block:"start" });
 }
 
+/* ══ Marge de sécurité pour la coupure audio en fin de fenêtre ══
+   Sur APK (WebView Android via Capacitor), il y a un délai réel entre
+   l'appel `audio.pause()` et l'arrêt effectif du son (latence du pipeline
+   audio natif) — absent ou négligeable sur PC/Chrome desktop. Avec une
+   marge de 60ms calibrée pour PC, l'APK dépassait de plusieurs centaines
+   de ms dans le verset suivant avant que pause() ne prenne effet.
+   On agrandit la marge ET on sonde plus souvent, uniquement sur APK. */
+const IS_NATIVE_APP = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+const AUDIO_STOP_MARGIN_SEC = IS_NATIVE_APP ? 0.30 : 0.06;
+const AUDIO_POLL_INTERVAL_MS = IS_NATIVE_APP ? 40 : 80;
+
 function playOnce(onEnd) {
   const p = G("audio-player");
   // BUG CORRIGÉ : cette fonction rechargeait systématiquement `audioUrl`
@@ -13073,13 +13084,13 @@ function playOnce(onEnd) {
           stuckCount = 0;
           lastTime = t;
         }
-        if (t >= endTime - 0.06) { p.pause(); safeEnd(); return; }
+        if (t >= endTime - AUDIO_STOP_MARGIN_SEC) { p.pause(); safeEnd(); return; }
         const cue = activeCues.find(c => t >= c.start && t < c.end);
         if (cue) {
           setWord(cue.text);
           G("current-word-label").textContent = cue.text;
         }
-      }, 80);
+      }, AUDIO_POLL_INTERVAL_MS);
     }
 
     if (phase === "listen") {
@@ -13519,6 +13530,35 @@ G("btn-rec-stop").addEventListener("click", () => {
     setTimeout(() => evaluate(), 1500);
   }
 });
+
+/* ══ Raccourci clavier "Entrée" ══
+   Sur PC, la popup native de permission micro du navigateur prend le
+   focus tout en haut de l'écran ; l'enfant devait ensuite redescendre à
+   la souris cliquer sur "enregistrer" à CHAQUE verset — pénible. Avec ce
+   raccourci, la touche Entrée déclenche directement le bouton d'action
+   actuellement visible (écoute → enregistrer → arrêter), sans bouger la
+   souris. On ignore Entrée si le focus est dans un champ de saisie
+   (ex: les champs "من الآية"/"إلى الآية" du choix de plage de révision),
+   pour ne pas interférer avec leur usage normal. */
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  const activeTag = (document.activeElement && document.activeElement.tagName || "").toLowerCase();
+  if (activeTag === "input" || activeTag === "textarea" || activeTag === "select") return;
+
+  const candidates = [
+    G("btn-listen-start"),
+    G("btn-rec-start"),
+    G("btn-rec-stop")
+  ];
+  for (const btn of candidates) {
+    if (btn && !btn.classList.contains("hidden") && !btn.disabled) {
+      e.preventDefault();
+      btn.click();
+      return;
+    }
+  }
+});
+
 function playGroupOnce(then, fromIdx) {
   const start = (typeof fromIdx === "number") ? fromIdx : 0;
   const indices = [];
