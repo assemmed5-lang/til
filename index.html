@@ -12971,7 +12971,14 @@ function beginExamPhase() {
 
 function playOnce(onEnd) {
   const p = G("audio-player");
-  if (!audioUrl) {
+  // BUG CORRIGÉ : cette fonction rechargeait systématiquement `audioUrl`
+  // (la sourate en cours d'APPRENTISSAGE), même quand on était en pleine
+  // révision ciblée d'une AUTRE sourate (revMode + revAudioUrl). Résultat :
+  // le texte affiché venait de la sourate en révision, mais le son entendu
+  // était celui de la dernière sourate apprise. `targetUrl` choisit la
+  // bonne source selon le mode actif.
+  const targetUrl = revMode ? revAudioUrl : audioUrl;
+  if (!targetUrl) {
     alert("⚠️ الرجاء تحميل ملف MP3 وملف SRT أولاً.");
     stopped = true;
     G("btn-listen-start").classList.remove("hidden");
@@ -13039,8 +13046,8 @@ function playOnce(onEnd) {
   }
 
   function loadAndPlay() {
-    p._loadedUrl = audioUrl;
-    p.src = audioUrl;
+    p._loadedUrl = targetUrl;
+    p.src = targetUrl;
     p.onended = null;
     p.onloadedmetadata = null;
     p.oncanplaythrough = null;
@@ -13049,9 +13056,9 @@ function playOnce(onEnd) {
     p.onerror = safeEnd;
   }
 
-  if (p.readyState >= 2) {
+  if (p.readyState >= 2 && p._loadedUrl === targetUrl) {
     doPlay();
-  } else if (p._loadedUrl !== audioUrl) {
+  } else if (p._loadedUrl !== targetUrl) {
     loadAndPlay();
   } else {
     p.oncanplaythrough = function() { p.oncanplaythrough = null; doPlay(); };
