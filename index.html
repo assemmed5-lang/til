@@ -13513,6 +13513,8 @@ function tick() {
         stopped = true;
         G("btn-listen-start").disabled = false;
         G("btn-listen-start").textContent = "▶";
+        G("btn-listen-start").classList.remove("hidden");
+        G("btn-listen-stop").classList.add("hidden");
         window._pauseSilencePending = false;
         return;
       }
