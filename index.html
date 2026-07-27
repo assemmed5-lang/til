@@ -14434,7 +14434,7 @@ function revEvaluateBlock() {
   const idxs = []; for (let vi = from; vi <= to; vi++) idxs.push(vi);
   showVerseWithMisses(idxs, heard);
 
-  if (score >= 50) {
+  if (score >= getKidParams().passThresholdBlock) {
     setTimeout(() => {
       setWord("—");
       revBlockIdx++;
