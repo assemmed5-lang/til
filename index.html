@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -12546,6 +12545,46 @@ const EXAM_PRE_LISTEN_REPEATS = 3;
    (1 = comportement d'origine, un seul jeu par répétition). */
 const LEARNING_REP_PLAY_REPEATS = 3;
 
+/* ══════════════════════════════════════════════════════════
+   ⭐ RÉGLAGES PAR ENFANT (modifiables sans toucher au code) ⭐
+   ══════════════════════════════════════════════════════════
+   Les 4 chiffres ci-dessous (nombre de jeux mp3 pendant l'apprentissage,
+   nombre d'écoutes avant chaque examen, et les deux seuils de réussite en
+   %) sont désormais réglables INDIVIDUELLEMENT pour chaque enfant depuis
+   le panneau ⚙ (icône en haut à gauche de l'écran de sélection) — utile
+   par exemple pour يحيى (5.5 ans, troubles de prononciation, mémorisation
+   surtout auditive) qui peut avoir besoin de plus d'écoutes et d'un seuil
+   de réussite plus souple que ses frère et sœur.
+   Les valeurs ci-dessous ne servent que de valeurs PAR DÉFAUT (utilisées
+   tant qu'aucun réglage personnalisé n'a été enregistré pour l'enfant). */
+const DEFAULT_KID_PARAMS = {
+  learningRepPlayRepeats: LEARNING_REP_PLAY_REPEATS, // jeux mp3 par répétition d'apprentissage
+  examPreListenRepeats:   EXAM_PRE_LISTEN_REPEATS,   // écoutes juste avant chaque récitation
+  passThreshold:      70, // % requis pour réussir un examen solo / final / révision
+  passThresholdBlock: 50  // % requis pour réussir un examen de bloc (plusieurs versets)
+};
+
+function kidParamsKeyFor(kid) { return "tilawa_" + kid + "_params"; }
+
+function getKidParamsFor(kid) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(kidParamsKeyFor(kid)) || "{}");
+    return Object.assign({}, DEFAULT_KID_PARAMS, saved);
+  } catch(e) { return Object.assign({}, DEFAULT_KID_PARAMS); }
+}
+
+function saveKidParamsFor(kid, params) {
+  try { localStorage.setItem(kidParamsKeyFor(kid), JSON.stringify(params)); } catch(e) {}
+  try { fbDB.ref("tilawa/" + kid + "/params").set(params); } catch(e) {}
+}
+
+/* Réglages de l'enfant actuellement sélectionné (currentKid). Si aucun
+   enfant n'est encore sélectionné, renvoie les valeurs par défaut. */
+function getKidParams() {
+  if (!currentKid) return Object.assign({}, DEFAULT_KID_PARAMS);
+  return getKidParamsFor(currentKid);
+}
+
 /* Callback en attente : si non-null, un clic sur le bouton ▶ (ou la
    touche Entrée qui déclenche ce même bouton) l'exécute au lieu du
    comportement normal du bouton — utilisé pour la pause "preuve de
@@ -12589,7 +12628,7 @@ function playXTimesWithConfirm(times, onAllDone, playIndex) {
    l'examen/la récitation). */
 function playRepeatedThenExam(onDone) {
   G("audio-player").playbackRate = 1.0;
-  playXTimesWithConfirm(EXAM_PRE_LISTEN_REPEATS, onDone);
+  playXTimesWithConfirm(getKidParams().examPreListenRepeats, onDone);
 }
 
 /* Variante de playGroupOnce : positionne la fenêtre audio sur le bloc de
@@ -13360,7 +13399,7 @@ function tick() {
   }
   const speedLabel = (phase === "listen" && repCur < 5) ? " 🐢 بطيء" : " ⚡ عادي";
   G("rep-state").textContent = "▶ التكرار رقم " + (repCur+1) + " من " + repTotal + speedLabel;
-  playXTimesWithConfirm(LEARNING_REP_PLAY_REPEATS, () => {
+  playXTimesWithConfirm(getKidParams().learningRepPlayRepeats, () => {
     if (stopped) return;
     // En phase retry : réécoute simple, pas de correction mot à mot
       afterVersePlay();
@@ -14635,7 +14674,8 @@ function evaluate() {
   // individuel dépasse le seuil : un léger accroc de reconnaissance vocale
   // sur un seul mot d'un bloc de 10 versets ne doit pas faire échouer tout
   // le bloc alors que la récitation globale était correcte.
-  const PASS_THRESHOLD = (examSolo || examFinal) ? 70 : 50;
+  const kp = getKidParams();
+  const PASS_THRESHOLD = (examSolo || examFinal) ? kp.passThreshold : kp.passThresholdBlock;
   const allPassed = totalWordsCount > 0 && score >= PASS_THRESHOLD;
 
   if (allPassed) {
@@ -14811,6 +14851,65 @@ function buildAdminPanel() {
     row.appendChild(btn);
     row.appendChild(savedMsg);
     wrap.appendChild(row);
+
+    /* ── Sous-section : réglages audio/seuils propres à cet enfant ── */
+    const params = getKidParamsFor(k.id);
+    const prow = document.createElement("div");
+    prow.className = "admin-row";
+
+    const plabel = document.createElement("label");
+    plabel.textContent = "إعدادات " + k.nom + " (التكرار والنسبة المطلوبة)";
+    prow.appendChild(plabel);
+
+    function fieldBlock(labelTxt, value, min, max) {
+      const fw = document.createElement("div");
+      fw.style.marginBottom = "8px";
+      const flabel = document.createElement("label");
+      flabel.style.fontSize = "0.85rem";
+      flabel.style.fontWeight = "400";
+      flabel.textContent = labelTxt;
+      const finput = document.createElement("input");
+      finput.type = "number";
+      finput.min = String(min);
+      finput.max = String(max);
+      finput.value = String(value);
+      fw.appendChild(flabel);
+      fw.appendChild(finput);
+      return { wrap: fw, input: finput };
+    }
+
+    const fLearning = fieldBlock("🔁 عدد مرات تشغيل الصوت أثناء الحفظ (لكل تكرار)", params.learningRepPlayRepeats, 1, 10);
+    const fExam     = fieldBlock("🔁 عدد مرات الاستماع قبل كل امتحان", params.examPreListenRepeats, 1, 10);
+    const fPass     = fieldBlock("✅ نسبة النجاح المطلوبة — آية مفردة / امتحان نهائي (%)", params.passThreshold, 1, 100);
+    const fPassBlk  = fieldBlock("✅ نسبة النجاح المطلوبة — مجموعة آيات (%)", params.passThresholdBlock, 1, 100);
+
+    prow.appendChild(fLearning.wrap);
+    prow.appendChild(fExam.wrap);
+    prow.appendChild(fPass.wrap);
+    prow.appendChild(fPassBlk.wrap);
+
+    const pbtn = document.createElement("button");
+    pbtn.textContent = "حفظ الإعدادات — " + k.nom;
+
+    const psavedMsg = document.createElement("div");
+    psavedMsg.className = "admin-saved";
+    psavedMsg.textContent = "✓ تم الحفظ";
+
+    pbtn.addEventListener("click", () => {
+      const newParams = {
+        learningRepPlayRepeats: Math.max(1, parseInt(fLearning.input.value) || DEFAULT_KID_PARAMS.learningRepPlayRepeats),
+        examPreListenRepeats:   Math.max(1, parseInt(fExam.input.value) || DEFAULT_KID_PARAMS.examPreListenRepeats),
+        passThreshold:      Math.min(100, Math.max(1, parseInt(fPass.input.value) || DEFAULT_KID_PARAMS.passThreshold)),
+        passThresholdBlock: Math.min(100, Math.max(1, parseInt(fPassBlk.input.value) || DEFAULT_KID_PARAMS.passThresholdBlock))
+      };
+      saveKidParamsFor(k.id, newParams);
+      psavedMsg.style.display = "block";
+      setTimeout(() => { psavedMsg.style.display = "none"; }, 1800);
+    });
+
+    prow.appendChild(pbtn);
+    prow.appendChild(psavedMsg);
+    wrap.appendChild(prow);
   });
 }
 
