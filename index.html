@@ -13426,6 +13426,13 @@ function tick() {
     G("transcript").textContent = "";
     G("transcript").style.display = "none";
 
+    // 🎨 SIGNAL VISUEL DE RÉCITATION — l'enfant ne sachant pas encore lire,
+    // le fond de l'écran change de couleur dès le début de la pause pour
+    // signaler sans ambiguïté "à toi de réciter maintenant" (distinct du
+    // fond habituel pendant l'écoute du mp3). Remis à la couleur normale
+    // (var(--bg)) dès que la pause se termine, quel que soit le résultat.
+    document.body.style.background = "var(--gold-mid)";
+
     if ((phase === "listen" || phase === "retry_listen") && SRBrowser) {
       // BUG CORRIGÉ : auparavant on ne prenait que retryMissing[0] (le premier
       // verset du groupe), donc dès qu'un groupe de plusieurs versets était en
