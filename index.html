@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -12512,6 +12513,7 @@ let audioUrl   = "001.mp3";
 let audioB64   = null;
 let activeBankIdx = -1;
 let curVerseIdx=0, examUpTo=0, phase="idle", retryMissing=[];
+let examLayer=1, layer2Done=false;
 let playing=false, stopped=false, repCur=0, repTotal=10, recog=null, finalTx="", lastFullTx="";
 /* ── Système de blocs progressifs (fenêtre glissante de consolidation) ── */
 /* ══════════════════════════════════════════════════════════
@@ -12717,22 +12719,23 @@ function buildExamQueueForVerse(vIdx) {
   const bStart = blockStartOf(vIdx);
   const pos = positionInBlock(vIdx);
   const q = [];
-  const lastOfBlock = isLastOfBlock(vIdx); // gère aussi les sourates dont la longueur n'est pas multiple de BLOCK_SIZE
-
-  // Chaque nouveau verset passe TOUJOURS un examen solo en premier (positions
-  // 1, 2, 3, 4, 5...), avant d'être inclus dans un examen de groupe.
   q.push({ from: vIdx, to: vIdx, kind: "solo" });
+  if (pos !== 1) {
+    q.push({ from: bStart, to: vIdx, kind: "block" });
+  }
+  return q;
+}
 
-  if (lastOfBlock) {
-    // Fin de bloc (5 versets, ou moins si fin de sourate) → examen du bloc entier
-    q.push({ from: bStart, to: vIdx, kind: "block" });
-    if (bStart > 0) {
-      // Puis fusion avec le bloc précédent (bloc précédent + bloc courant = 10 versets)
-      q.push({ from: bStart - BLOCK_SIZE, to: vIdx, kind: "block" });
-    }
-  } else if (pos !== 1) {
-    // pos 2, 3, 4... (milieu de bloc, hors dernier verset du bloc)
-    q.push({ from: bStart, to: vIdx, kind: "block" });
+// ── Couche 2 : même mécanisme que la couche 1, mais par paires de versets ──
+function buildLayer2Queue() {
+  const P = Math.ceil(verses.length / 2);
+  const q = [];
+  for (let p = 0; p < P; p++) {
+    const from = p * 2, to = Math.min(p * 2 + 1, verses.length - 1);
+    const gStart = Math.floor(p / BLOCK_SIZE) * BLOCK_SIZE;
+    const pos = (p - gStart) + 1;
+    q.push({ from, to, kind: "block" });
+    if (pos !== 1) q.push({ from: gStart * 2, to, kind: "block" });
   }
   return q;
 }
@@ -12741,6 +12744,7 @@ function buildExamQueueForVerse(vIdx) {
 function startNextExamInQueue() {
   if (!examQueue.length) { onExamPassed(); return; }
   const spec = examQueue[0];
+  curVerseIdx   = spec.to;
   examSolo      = spec.kind === "solo";
   examFinal     = spec.kind === "final";
   examBlockFrom = spec.from;
@@ -12776,7 +12780,14 @@ function onExamPassed() {
   }
 
   if (curVerseIdx >= verses.length - 1) {
-    // Dernier verset appris : lancer la révision finale par blocs de 10 versets.
+    if (examLayer === 1 && !layer2Done) {
+      // Tous les versets appris en solo : on enchaîne la couche 2 (par paires).
+      examLayer = 2; layer2Done = true;
+      examQueue = buildLayer2Queue();
+      startNextExamInQueue();
+      return;
+    }
+    // Couche 2 terminée : lancer la révision finale par blocs de 10 versets.
     startFinalReview();
     return;
   }
@@ -12928,6 +12939,8 @@ function saveState() {
     examFinal: examFinal || false,
     examBlockFrom: examBlockFrom || 0,
     examQueue: examQueue || [],
+    examLayer: examLayer || 1,
+    layer2Done: layer2Done || false,
     finalReviewQueue: finalReviewQueue || [],
     finalReviewIdx: finalReviewIdx || 0,
     examUpTo,
@@ -12950,6 +12963,8 @@ function applyStateObj(s) {
   examFinal     = s.examFinal || false;
   examBlockFrom = s.examBlockFrom || 0;
   examQueue     = Array.isArray(s.examQueue) ? s.examQueue : [];
+  examLayer     = s.examLayer || 1;
+  layer2Done    = s.layer2Done || false;
   finalReviewQueue = Array.isArray(s.finalReviewQueue) ? s.finalReviewQueue : [];
   finalReviewIdx   = s.finalReviewIdx || 0;
   examUpTo      = s.examUpTo || 0;
@@ -13057,10 +13072,10 @@ function startSession() {
       for (let i = from2; i <= curVerseIdx; i++) allIndices.push(i);
       beginRetryListenPhase(allIndices);
     }
-    else { curVerseIdx=0; examUpTo=0; phase="idle"; retryMissing=[]; repCur=0; repTotal=10; examSolo=true; examFinal=false; examBlockFrom=0; examQueue=[]; finalReviewQueue=[]; finalReviewIdx=0; beginListenPhase(); }
+    else { curVerseIdx=0; examUpTo=0; phase="idle"; retryMissing=[]; repCur=0; repTotal=10; examSolo=true; examFinal=false; examBlockFrom=0; examQueue=[]; finalReviewQueue=[]; finalReviewIdx=0; examLayer=1; layer2Done=false; beginListenPhase(); }
   } else {
     curVerseIdx=0; examUpTo=0; phase="idle"; retryMissing=[]; repCur=0; repTotal=10;
-    examSolo=true; examFinal=false; examBlockFrom=0; examQueue=[]; finalReviewQueue=[]; finalReviewIdx=0;
+    examSolo=true; examFinal=false; examBlockFrom=0; examQueue=[]; finalReviewQueue=[]; finalReviewIdx=0; examLayer=1; layer2Done=false;
     beginListenPhase();
   }
 }
@@ -13814,7 +13829,7 @@ function showDone() {
       chargerSourate(curSuraIdx);
       curVerseIdx=0; examUpTo=0; phase="idle"; repCur=0; repTotal=10;
       playing=false; stopped=false; finalTx=""; lastFullTx=""; examSolo=true;
-      examFinal=false; examBlockFrom=0; examQueue=[]; finalReviewQueue=[]; finalReviewIdx=0;
+      examFinal=false; examBlockFrom=0; examQueue=[]; finalReviewQueue=[]; finalReviewIdx=0; examLayer=1; layer2Done=false;
       retryMissing=[];
       G("card-result").classList.add("hidden");
       const p = document.querySelector("audio");
@@ -14727,7 +14742,7 @@ G("btn-restart").addEventListener("click", () => {
   localStorage.removeItem(kidKey("state"));
   curVerseIdx=0; examUpTo=0; phase="idle"; repCur=0; repTotal=10;
   playing=false; stopped=false; finalTx=""; lastFullTx="";
-  examSolo=true; examFinal=false; examBlockFrom=0; examQueue=[]; finalReviewQueue=[]; finalReviewIdx=0;
+  examSolo=true; examFinal=false; examBlockFrom=0; examQueue=[]; finalReviewQueue=[]; finalReviewIdx=0; examLayer=1; layer2Done=false;
   stopPauseRecog();
   if (window._wTimer) clearInterval(window._wTimer);
   G("card-listen").classList.add("hidden");
